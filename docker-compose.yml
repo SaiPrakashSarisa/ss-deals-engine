@@ -83,5 +83,28 @@ services:
     stop_grace_period: 20s
     restart: unless-stopped
 
+  quickpost:
+    profiles: ['quickpost']
+    image: ss-deals-quickpost:local
+    build:
+      context: .
+      dockerfile: apps/quickpost/Dockerfile
+    container_name: ss-deals-quickpost
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-Asia/Kolkata}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHANNEL: ${TELEGRAM_CHANNEL:-}
+      OWNER_TELEGRAM_ID: ${OWNER_TELEGRAM_ID:-}
+      AMAZON_TAG: ${AMAZON_TAG:-}
+      DAILY_POST_LIMIT: ${DAILY_POST_LIMIT:-8}
+      DATA_DIR: /app/data
+    volumes:
+      - quickpost_data:/app/data
+    stop_grace_period: 20s
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  quickpost_data:
