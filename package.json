@@ -1,0 +1,28 @@
+{
+  "name": "ss-deals-engine",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.17.0",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @ss-deals/server dev",
+    "dev:worker": "pnpm --filter @ss-deals/server dev:worker",
+    "build": "pnpm --filter @ss-deals/server build",
+    "start": "pnpm --filter @ss-deals/server start",
+    "start:worker": "pnpm --filter @ss-deals/server start:worker",
+    "test": "pnpm --filter @ss-deals/server test",
+    "lint": "eslint . && prettier --check .",
+    "typecheck": "pnpm --filter @ss-deals/server typecheck",
+    "db:generate": "pnpm --filter @ss-deals/server db:generate",
+    "db:migrate": "pnpm --filter @ss-deals/server db:migrate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.10",
+    "typescript-eslint": "^8.72.1"
+  }
+}
