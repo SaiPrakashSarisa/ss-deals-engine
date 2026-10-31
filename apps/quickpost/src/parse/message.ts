@@ -1,0 +1,169 @@
+import { parseAmazonProductUrl } from '../amazon/url.js';
+import type { DealDraft } from '../deal.js';
+
+export type ParseResult = { ok: true; draft: DealDraft } | { ok: false; errors: string[] };
+
+const FIELD_PATTERN = /^(title|price|old|verified)\s*:\s*(.*)$/i;
+
+export function parseDealMessage(text: string, tag: string): ParseResult {
+  const errors: string[] = [];
+  const link = readProductLink(text, tag);
+  const fields = readFields(text);
+
+  if (link.kind === 'error') {
+    errors.push(link.message);
+  }
+  if (fields.title === undefined || fields.title.length === 0) {
+    errors.push('Add a title: line.');
+  }
+  const price = readPrice(fields.priceRaw, errors);
+  const oldPrice = readOldPrice(fields.oldRaw, price, errors);
+  const verified = readVerified(fields.verifiedRaw, errors);
+
+  if (errors.length > 0 || link.kind !== 'ok' || price === undefined) {
+    return { ok: false, errors };
+  }
+
+  const draft: DealDraft = {
+    asin: link.asin,
+    taggedUrl: link.url,
+    title: fields.title ?? '',
+    price,
+    verified,
+    highlights: fields.highlights,
+  };
+  if (oldPrice !== undefined) {
+    draft.oldPrice = oldPrice;
+  }
+  return { ok: true, draft };
+}
+
+export function parseRupeeAmount(raw: string): number | undefined {
+  let text = raw.trim();
+  if (text.startsWith('₹')) {
+    text = text.slice(1).trim();
+  }
+  text = text.replaceAll(',', '');
+  if (!/^[1-9]\d{0,11}$/.test(text)) {
+    return undefined;
+  }
+  const amount = Number(text);
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    return undefined;
+  }
+  return amount;
+}
+
+export function firstHttpUrl(text: string): string | undefined {
+  const match = /https?:\/\/[^\s<>"']+/i.exec(text);
+  const raw = match?.[0];
+  if (raw === undefined) {
+    return undefined;
+  }
+  return raw.replace(/[),.;\]]+$/u, '');
+}
+
+function readProductLink(
+  text: string,
+  tag: string,
+): { kind: 'ok'; asin: string; url: string } | { kind: 'error'; message: string } {
+  const rawUrl = firstHttpUrl(text);
+  if (rawUrl === undefined) {
+    return { kind: 'error', message: 'Paste the full amazon.in product link.' };
+  }
+  const parsed = parseAmazonProductUrl(rawUrl, tag);
+  if (!parsed.ok) {
+    return { kind: 'error', message: parsed.message };
+  }
+  return { kind: 'ok', asin: parsed.asin, url: parsed.url };
+}
+
+function readFields(text: string): {
+  title?: string;
+  priceRaw?: string;
+  oldRaw?: string;
+  verifiedRaw?: string;
+  highlights: string[];
+} {
+  let title: string | undefined;
+  let priceRaw: string | undefined;
+  let oldRaw: string | undefined;
+  let verifiedRaw: string | undefined;
+  const highlights: string[] = [];
+
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('-')) {
+      const highlight = trimmed.slice(1).trim();
+      if (highlight.length > 0) {
+        highlights.push(highlight);
+      }
+      continue;
+    }
+
+    const field = FIELD_PATTERN.exec(trimmed);
+    const key = field?.[1]?.toLowerCase();
+    const value = field?.[2]?.trim();
+    if (key === undefined || value === undefined) {
+      continue;
+    }
+    if (key === 'title') {
+      title = value;
+    } else if (key === 'price') {
+      priceRaw = value;
+    } else if (key === 'old') {
+      oldRaw = value;
+    } else if (key === 'verified') {
+      verifiedRaw = value;
+    }
+  }
+
+  return { title, priceRaw, oldRaw, verifiedRaw, highlights };
+}
+
+function readPrice(priceRaw: string | undefined, errors: string[]): number | undefined {
+  if (priceRaw === undefined) {
+    errors.push('Add a price: line.');
+    return undefined;
+  }
+  const price = parseRupeeAmount(priceRaw);
+  if (price === undefined) {
+    errors.push('Price must be a positive whole number of rupees, such as 1499 or ₹1,499.');
+    return undefined;
+  }
+  return price;
+}
+
+function readOldPrice(
+  oldRaw: string | undefined,
+  price: number | undefined,
+  errors: string[],
+): number | undefined {
+  if (oldRaw === undefined) {
+    return undefined;
+  }
+  const oldPrice = parseRupeeAmount(oldRaw);
+  if (oldPrice === undefined) {
+    errors.push('Old price must be a positive whole number of rupees.');
+    return undefined;
+  }
+  if (price !== undefined && oldPrice <= price) {
+    errors.push('Old price must be greater than the current price.');
+  }
+  return oldPrice;
+}
+
+function readVerified(verifiedRaw: string | undefined, errors: string[]): boolean {
+  if (verifiedRaw === undefined) {
+    return false;
+  }
+  const value = verifiedRaw.toLowerCase();
+  if (value === 'yes') {
+    return true;
+  }
+  if (value === 'no') {
+    return false;
+  }
+  errors.push('Verified must be yes or no.');
+  return false;
+}
