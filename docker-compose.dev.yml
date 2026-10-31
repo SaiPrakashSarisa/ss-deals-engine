@@ -1,0 +1,26 @@
+# Dev override: bind-mount source and restart on change.
+# Host ports stay in docker-compose.yml (127.0.0.1:3000 and 127.0.0.1:5432).
+services:
+  api:
+    image: ss-deals-engine:dev
+    build:
+      target: dev
+    working_dir: /app/apps/server
+    command: ['node', '--import', 'tsx', '--watch', 'src/api/main.ts']
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    volumes:
+      - ./apps/server/src:/app/apps/server/src
+
+  worker:
+    image: ss-deals-engine:dev
+    build:
+      target: dev
+    working_dir: /app/apps/server
+    command: ['node', '--import', 'tsx', '--watch', 'src/worker/main.ts']
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    volumes:
+      - ./apps/server/src:/app/apps/server/src

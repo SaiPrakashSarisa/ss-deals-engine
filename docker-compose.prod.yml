@@ -1,0 +1,16 @@
+# No source bind mounts. Export POSTGRES_PASSWORD and COMPOSE_DATABASE_URL first.
+# COMPOSE_DATABASE_URL must use the Compose hostname `postgres`, not 127.0.0.1.
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+
+  api:
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:?Set COMPOSE_DATABASE_URL to postgres://USER:PASSWORD@postgres:5432/DB}
+
+  worker:
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:?Set COMPOSE_DATABASE_URL to postgres://USER:PASSWORD@postgres:5432/DB}
