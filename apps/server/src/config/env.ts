@@ -7,6 +7,9 @@ const configSchema = z
     DATABASE_URL: z.string().min(1),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']),
     TZ: z.string().min(1),
+    SESSION_COOKIE_NAME: z.string().regex(/^[A-Za-z0-9_-]+$/),
+    COOKIE_SECURE: z.boolean(),
+    ALLOWED_ORIGIN: z.array(z.string().min(1)).min(1),
   })
   .strict();
 
@@ -53,6 +56,45 @@ function parsePort(value: string | undefined): number {
   return port;
 }
 
+function parseCookieSecure(value: string | undefined): boolean {
+  if (value === undefined || value.trim() === '') {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true') {
+    return true;
+  }
+  if (normalized === 'false') {
+    return false;
+  }
+  throw new Error('Invalid environment configuration: COOKIE_SECURE must be true or false');
+}
+
+function parseCookieName(value: string | undefined): string {
+  const name = value === undefined || value.trim() === '' ? 'ssd_session' : value.trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+    throw new Error(
+      'Invalid environment configuration: SESSION_COOKIE_NAME must contain only letters, numbers, "_" or "-"',
+    );
+  }
+  return name;
+}
+
+function parseAllowedOrigins(value: string | undefined): string[] {
+  const raw = value === undefined || value.trim() === '' ? 'http://localhost:3001' : value;
+  const origins = raw
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+  const originPattern = /^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/;
+  if (origins.length === 0 || origins.some((origin) => !originPattern.test(origin))) {
+    throw new Error(
+      'Invalid environment configuration: ALLOWED_ORIGIN must be a comma-separated list of http(s) origins',
+    );
+  }
+  return origins;
+}
+
 function formatIssues(error: z.ZodError): string {
   return error.issues
     .map((issue) => {
@@ -85,6 +127,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     DATABASE_URL: requireDatabaseUrl(env.DATABASE_URL),
     LOG_LEVEL: logLevel,
     TZ: timezone,
+    SESSION_COOKIE_NAME: parseCookieName(env.SESSION_COOKIE_NAME),
+    COOKIE_SECURE: parseCookieSecure(env.COOKIE_SECURE),
+    ALLOWED_ORIGIN: parseAllowedOrigins(env.ALLOWED_ORIGIN),
   });
 
   if (!parsed.success) {

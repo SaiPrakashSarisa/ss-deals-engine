@@ -11,6 +11,9 @@ describe('loadConfig', () => {
       DATABASE_URL: databaseUrl,
       LOG_LEVEL: 'info',
       TZ: 'Asia/Kolkata',
+      SESSION_COOKIE_NAME: 'ssd_session',
+      COOKIE_SECURE: false,
+      ALLOWED_ORIGIN: ['http://localhost:3001'],
     });
   });
 
@@ -22,6 +25,9 @@ describe('loadConfig', () => {
         DATABASE_URL: 'postgresql://user:pass@db.internal:5432/ssdeals',
         LOG_LEVEL: 'debug',
         TZ: 'UTC',
+        SESSION_COOKIE_NAME: 'deal_session',
+        COOKIE_SECURE: 'true',
+        ALLOWED_ORIGIN: 'http://localhost:3001, http://127.0.0.1:3001',
       }),
     ).toEqual({
       NODE_ENV: 'production',
@@ -29,6 +35,9 @@ describe('loadConfig', () => {
       DATABASE_URL: 'postgresql://user:pass@db.internal:5432/ssdeals',
       LOG_LEVEL: 'debug',
       TZ: 'UTC',
+      SESSION_COOKIE_NAME: 'deal_session',
+      COOKIE_SECURE: true,
+      ALLOWED_ORIGIN: ['http://localhost:3001', 'http://127.0.0.1:3001'],
     });
   });
 
@@ -37,5 +46,17 @@ describe('loadConfig', () => {
       'Invalid environment configuration: DATABASE_URL is required. Set it to a PostgreSQL connection string.',
     );
     expect(() => loadConfig({ DATABASE_URL: '   ' })).toThrow(/DATABASE_URL is required/);
+  });
+
+  it('rejects a bad cookie flag, cookie name, or origin', () => {
+    expect(() => loadConfig({ DATABASE_URL: databaseUrl, COOKIE_SECURE: 'yes' })).toThrow(
+      /COOKIE_SECURE must be true or false/,
+    );
+    expect(() => loadConfig({ DATABASE_URL: databaseUrl, SESSION_COOKIE_NAME: 'a b' })).toThrow(
+      /SESSION_COOKIE_NAME/,
+    );
+    expect(() =>
+      loadConfig({ DATABASE_URL: databaseUrl, ALLOWED_ORIGIN: 'https://example.com/path' }),
+    ).toThrow(/ALLOWED_ORIGIN/);
   });
 });
