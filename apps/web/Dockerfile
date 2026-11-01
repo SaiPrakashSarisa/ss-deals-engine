@@ -11,10 +11,13 @@ FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json ./apps/web/package.json
 COPY apps/server/package.json ./apps/server/package.json
+COPY packages/core/package.json ./packages/core/package.json
 RUN pnpm install --frozen-lockfile --filter @ss-deals/web...
 
 FROM deps AS build
 COPY tsconfig.base.json ./
+COPY packages/core/tsconfig.json ./packages/core/tsconfig.json
+COPY packages/core/src ./packages/core/src
 COPY apps/web ./apps/web
 RUN pnpm --filter @ss-deals/web build
 
