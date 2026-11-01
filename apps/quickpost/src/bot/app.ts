@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { Logger } from 'pino';
 import type { AppConfig } from '../config/env.js';
-import { AMAZON_BUTTON_LABEL, formatPost, type LinkStyle } from '../format/post.js';
+import { AMAZON_BUTTON_LABEL, formatPost, type LinkStyle } from '@ss-deals/core';
 import type { Clock } from '../lib/clock.js';
 import { redactToken } from '../lib/redact.js';
 import { parseDealMessage } from '../parse/message.js';

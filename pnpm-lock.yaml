@@ -184,6 +184,9 @@ importers:
 
   apps/quickpost:
     dependencies:
+      '@ss-deals/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       grammy:
         specifier: ^1.46.0
         version: 1.46.0

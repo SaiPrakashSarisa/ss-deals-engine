@@ -4,13 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "pnpm --filter @ss-deals/core build",
     "dev": "node --env-file-if-exists=../../.env --import tsx --watch src/main.ts",
+    "prebuild": "pnpm --filter @ss-deals/core build",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
+    "pretest": "pnpm --filter @ss-deals/core build",
     "test": "vitest run --reporter=verbose",
+    "pretypecheck": "pnpm --filter @ss-deals/core build",
     "typecheck": "tsc -p tsconfig.typecheck.json --noEmit"
   },
   "dependencies": {
+    "@ss-deals/core": "workspace:*",
     "grammy": "^1.46.0",
     "pino": "^10.4.0",
     "zod": "^4.6.7"
