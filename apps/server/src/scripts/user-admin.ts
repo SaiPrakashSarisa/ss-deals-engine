@@ -7,17 +7,23 @@ import { createLogger } from '../lib/logger.js';
 import { hashPassword, passwordPolicyError } from '../modules/auth/password.js';
 import { revokeUserSessions } from '../modules/auth/service.js';
 
-type Command = 'create' | 'set-password' | 'deactivate';
+type Command = 'create' | 'set-password' | 'set-name' | 'deactivate';
 
 type AdminArgs = {
   username?: string;
   role?: string;
+  name?: string;
+  nameProvided: boolean;
   passwordOnCommandLine: boolean;
 };
+
+export const DISPLAY_NAME_MAX = 60;
 
 export function parseUserAdminArgs(argv: readonly string[]): AdminArgs {
   let username: string | undefined;
   let role: string | undefined;
+  let name: string | undefined;
+  let nameProvided = false;
   let passwordOnCommandLine = false;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -45,10 +51,32 @@ export function parseUserAdminArgs(argv: readonly string[]): AdminArgs {
     }
     if (arg.startsWith('--role=')) {
       role = arg.slice('--role='.length);
+      continue;
+    }
+    if (arg === '--name') {
+      name = argv[index + 1];
+      nameProvided = true;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--name=')) {
+      name = arg.slice('--name='.length);
+      nameProvided = true;
     }
   }
 
-  return { username, role, passwordOnCommandLine };
+  return { username, role, name, nameProvided, passwordOnCommandLine };
+}
+
+export function normalizeDisplayName(value: string | undefined): string {
+  const name = value?.trim() ?? '';
+  if (name.length === 0) {
+    throw new Error('Name cannot be blank.');
+  }
+  if (name.length > DISPLAY_NAME_MAX) {
+    throw new Error(`Name must be at most ${DISPLAY_NAME_MAX} characters.`);
+  }
+  return name;
 }
 
 export function normalizeUsername(value: string | undefined): string {
@@ -76,10 +104,13 @@ async function main(): Promise<void> {
   try {
     if (command === 'create') {
       const role = readRole(args.role);
+      const displayName = args.nameProvided ? normalizeDisplayName(args.name) : null;
       const password = await readNewPassword();
       const passwordHash = await hashPassword(password);
       try {
-        await db.insert(users).values({ username, role, passwordHash, isActive: true });
+        await db
+          .insert(users)
+          .values({ username, role, displayName, passwordHash, isActive: true });
       } catch (error) {
         if (postgresCode(error) === '23505') {
           throw new Error(`The username ${username} is already taken.`, { cause: error });
@@ -91,6 +122,15 @@ async function main(): Promise<void> {
     }
 
     const user = await findUser(db, username);
+    if (command === 'set-name') {
+      if (!args.nameProvided) {
+        throw new Error('Pass --name with the name to show.');
+      }
+      const displayName = normalizeDisplayName(args.name);
+      await db.update(users).set({ displayName }).where(eq(users.id, user.id));
+      console.log(`Updated the name for ${username}.`);
+      return;
+    }
     if (command === 'deactivate') {
       await db.update(users).set({ isActive: false }).where(eq(users.id, user.id));
       await revokeUserSessions({ db, now: () => new Date() }, user.id);
@@ -109,10 +149,15 @@ async function main(): Promise<void> {
 }
 
 function readCommand(value: string | undefined): Command {
-  if (value === 'create' || value === 'set-password' || value === 'deactivate') {
+  if (
+    value === 'create' ||
+    value === 'set-password' ||
+    value === 'set-name' ||
+    value === 'deactivate'
+  ) {
     return value;
   }
-  throw new Error('Usage: user:create, user:set-password, or user:deactivate.');
+  throw new Error('Usage: user:create, user:set-password, user:set-name, or user:deactivate.');
 }
 
 function readRole(value: string | undefined): 'owner' | 'clerk' {

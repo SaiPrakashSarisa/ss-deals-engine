@@ -1,6 +1,8 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  check,
   pgEnum,
   pgTable,
   text,
@@ -8,7 +10,6 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { sql } from 'drizzle-orm';
 
 export const userRoleEnum = pgEnum('user_role', ['owner', 'clerk']);
 
@@ -17,6 +18,7 @@ export const users = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     username: text('username').notNull().unique(),
+    displayName: text('display_name'),
     passwordHash: text('password_hash'),
     role: userRoleEnum('role').notNull(),
     isActive: boolean('is_active').notNull().default(true),
@@ -30,5 +32,9 @@ export const users = pgTable(
     uniqueIndex('users_telegram_user_id_unique')
       .on(table.telegramUserId)
       .where(sql`${table.telegramUserId} is not null`),
+    check(
+      'users_display_name_length',
+      sql`${table.displayName} is null or char_length(${table.displayName}) between 1 and 60`,
+    ),
   ],
 );

@@ -1,8 +1,8 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, ne } from 'drizzle-orm';
 import type { Database } from '../../lib/db.js';
 import { sessions, users } from '../../db/schema/index.js';
 import { cookieMaxAgeSeconds, nextExpiry, sessionIsActive } from './expiry.js';
-import { verifyPassword } from './password.js';
+import { hashPassword, passwordPolicyError, verifyPassword } from './password.js';
 import { hashSessionToken, newSessionToken } from './token.js';
 
 const USER_AGENT_MAX = 512;
@@ -13,7 +13,15 @@ export type AuthUser = {
   id: string;
   username: string;
   role: AuthRole;
+  displayName: string;
 };
+
+export type PasswordChangeFailure = 'wrong' | 'policy' | 'same';
+
+export function visibleName(displayName: string | null | undefined, username: string): string {
+  const trimmed = displayName?.trim() ?? '';
+  return trimmed.length === 0 ? username : trimmed;
+}
 
 export type OpenedSession = AuthUser & {
   token: string;
@@ -60,6 +68,7 @@ export async function authenticate(
     id: user.id,
     username: user.username,
     role: user.role,
+    displayName: visibleName(user.displayName, user.username),
     token,
     createdAt: now,
     expiresAt,
@@ -80,6 +89,7 @@ export async function touchSession(
       revokedAt: sessions.revokedAt,
       userId: users.id,
       username: users.username,
+      displayName: users.displayName,
       role: users.role,
       isActive: users.isActive,
     })
@@ -110,6 +120,7 @@ export async function touchSession(
     id: row.userId,
     username: row.username,
     role: row.role,
+    displayName: visibleName(row.displayName, row.username),
     createdAt: row.createdAt,
     maxAgeSeconds: cookieMaxAgeSeconds(row.createdAt, now),
   };
@@ -120,6 +131,50 @@ export async function revokeSession(deps: SessionDeps, token: string): Promise<v
     .update(sessions)
     .set({ revokedAt: deps.now() })
     .where(and(eq(sessions.id, hashSessionToken(token)), isNull(sessions.revokedAt)));
+}
+
+export async function changePassword(
+  deps: SessionDeps,
+  userId: string,
+  currentToken: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<PasswordChangeFailure | undefined> {
+  const [user] = await deps.db
+    .select({ passwordHash: users.passwordHash })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  const stored = user?.passwordHash ?? null;
+  const passwordOk = await verifyPassword(currentPassword, stored);
+  if (user === undefined || stored === null || !passwordOk) {
+    return 'wrong';
+  }
+
+  if (passwordPolicyError(newPassword) !== undefined) {
+    return 'policy';
+  }
+  if (currentPassword === newPassword || (await verifyPassword(newPassword, stored))) {
+    return 'same';
+  }
+
+  const now = deps.now();
+  const passwordHash = await hashPassword(newPassword);
+  const currentSessionId = hashSessionToken(currentToken);
+  await deps.db.transaction(async (tx) => {
+    await tx.update(users).set({ passwordHash }).where(eq(users.id, userId));
+    await tx
+      .update(sessions)
+      .set({ revokedAt: now })
+      .where(
+        and(
+          eq(sessions.userId, userId),
+          isNull(sessions.revokedAt),
+          ne(sessions.id, currentSessionId),
+        ),
+      );
+  });
+  return undefined;
 }
 
 export async function revokeUserSessions(deps: SessionDeps, userId: string): Promise<void> {

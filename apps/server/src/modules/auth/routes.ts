@@ -1,21 +1,27 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { clearSessionCookieHeader, readCookie, sessionCookieHeader } from './cookies.js';
 import {
+  CHANGE_PASSWORD_FIELDS_ERROR,
+  CHANGE_PASSWORD_RATE_LIMIT_ERROR,
   CSRF_ERROR,
+  CURRENT_PASSWORD_ERROR,
   FORBIDDEN_ERROR,
   LOGIN_ERROR,
   LOGIN_FIELDS_ERROR,
   RATE_LIMIT_ERROR,
+  SAME_PASSWORD_ERROR,
   SIGN_IN_REQUIRED,
 } from './messages.js';
 import { createRateLimiter, type RateLimiter } from './rate-limit.js';
 import {
   authenticate,
+  changePassword,
   revokeSession,
   touchSession,
   type AuthRole,
   type AuthUser,
 } from './service.js';
+import { passwordPolicyError } from './password.js';
 import type { SessionDeps } from './service.js';
 
 export const FAILURE_DELAY_MS = 250;
@@ -38,6 +44,7 @@ declare module 'fastify' {
 
 export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): void {
   const limiter = deps.rateLimiter ?? createRateLimiter();
+  const passwordLimiter = createRateLimiter();
   const wait = deps.delay ?? delay;
   const failureDelayMs = deps.failureDelayMs ?? FAILURE_DELAY_MS;
 
@@ -108,8 +115,65 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     if (user === null) {
       return { error: SIGN_IN_REQUIRED };
     }
-    return { id: user.id, username: user.username, role: user.role };
+    return {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      displayName: user.displayName,
+    };
   });
+
+  app.post(
+    '/api/auth/change-password',
+    { preHandler: requireUser(deps) },
+    async (request, reply) => {
+      const user = request.authUser;
+      if (user === null) {
+        return reply.code(401).send({ error: SIGN_IN_REQUIRED });
+      }
+      const parsed = readChangePasswordBody(request.body);
+      if (parsed === undefined) {
+        return reply.code(400).send({ error: CHANGE_PASSWORD_FIELDS_ERROR });
+      }
+
+      const ip = request.ip;
+      const nowMs = deps.now().getTime();
+      const decision = passwordLimiter.check(user.username, ip, nowMs);
+      if (!decision.allowed) {
+        await wait(failureDelayMs);
+        reply.header('retry-after', String(decision.retryAfterSeconds));
+        return reply.code(429).send({ error: CHANGE_PASSWORD_RATE_LIMIT_ERROR });
+      }
+
+      const token = readCookie(request.headers.cookie, deps.cookieName);
+      if (token === undefined) {
+        return reply.code(401).send({ error: SIGN_IN_REQUIRED });
+      }
+      const failure = await changePassword(
+        deps,
+        user.id,
+        token,
+        parsed.currentPassword,
+        parsed.newPassword,
+      );
+      if (failure === 'wrong') {
+        passwordLimiter.recordFailure(user.username, ip, nowMs);
+        await wait(failureDelayMs);
+        return reply.code(401).send({ error: CURRENT_PASSWORD_ERROR });
+      }
+      if (failure === 'policy') {
+        const policy = passwordPolicyError(parsed.newPassword);
+        return reply.code(400).send({
+          error: policy ?? 'Password must be at least 12 characters.',
+        });
+      }
+      if (failure === 'same') {
+        return reply.code(400).send({ error: SAME_PASSWORD_ERROR });
+      }
+      passwordLimiter.clearUsername(user.username, ip);
+      return reply.code(200).send({ ok: true });
+    },
+  );
 
   if (deps.enableTestRoutes === true) {
     app.get('/api/auth/test/user', { preHandler: requireUser(deps) }, async (request, reply) =>
@@ -155,7 +219,12 @@ function requireUser(deps: AuthRouteDeps) {
       await reply.code(401).send({ error: SIGN_IN_REQUIRED });
       return;
     }
-    request.authUser = { id: session.id, username: session.username, role: session.role };
+    request.authUser = {
+      id: session.id,
+      username: session.username,
+      role: session.role,
+      displayName: session.displayName,
+    };
     reply.header(
       'set-cookie',
       sessionCookieHeader(deps.cookieName, token, {
@@ -205,6 +274,24 @@ function readLoginBody(body: unknown): { username: string; password: string } | 
     return undefined;
   }
   return { username: trimmed, password };
+}
+
+function readChangePasswordBody(
+  body: unknown,
+): { currentPassword: string; newPassword: string } | undefined {
+  if (body === null || typeof body !== 'object') {
+    return undefined;
+  }
+  const record = body as Record<string, unknown>;
+  const currentPassword = record.currentPassword;
+  const newPassword = record.newPassword;
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+    return undefined;
+  }
+  if (currentPassword.length === 0 || newPassword.length === 0) {
+    return undefined;
+  }
+  return { currentPassword, newPassword };
 }
 
 function stateChanging(method: string): boolean {

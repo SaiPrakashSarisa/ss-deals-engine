@@ -19,6 +19,7 @@
     "db:migrate": "node --env-file-if-exists=../../.env --import tsx src/scripts/migrate.ts",
     "user:create": "node --env-file-if-exists=../../.env --import tsx src/scripts/user-admin.ts create",
     "user:set-password": "node --env-file-if-exists=../../.env --import tsx src/scripts/user-admin.ts set-password",
+    "user:set-name": "node --env-file-if-exists=../../.env --import tsx src/scripts/user-admin.ts set-name",
     "user:deactivate": "node --env-file-if-exists=../../.env --import tsx src/scripts/user-admin.ts deactivate"
   },
   "dependencies": {

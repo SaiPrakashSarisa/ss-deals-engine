@@ -9,10 +9,13 @@ import { buildApp } from '../../src/api/app.js';
 import * as schema from '../../src/db/schema/index.js';
 import { sessions, users } from '../../src/db/schema/index.js';
 import {
+  CHANGE_PASSWORD_RATE_LIMIT_ERROR,
   CSRF_ERROR,
+  CURRENT_PASSWORD_ERROR,
   FORBIDDEN_ERROR,
   LOGIN_ERROR,
   RATE_LIMIT_ERROR,
+  SAME_PASSWORD_ERROR,
   SIGN_IN_REQUIRED,
 } from '../../src/modules/auth/messages.js';
 import { hashPassword } from '../../src/modules/auth/password.js';
@@ -162,6 +165,15 @@ describe.skipIf(databaseUrl === '')('auth http', () => {
     });
   }
 
+  function changePassword(cookie: string, currentPassword: string, newPassword: string) {
+    return server().inject({
+      method: 'POST',
+      url: '/api/auth/change-password',
+      headers: { cookie, origin },
+      payload: { currentPassword, newPassword },
+    });
+  }
+
   it('logs an owner in, returns the profile, and logs out', async () => {
     const signedIn = await login('ada', password);
     expect(signedIn.statusCode).toBe(200);
@@ -178,7 +190,7 @@ describe.skipIf(databaseUrl === '')('auth http', () => {
 
     const me = await server().inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } });
     expect(me.statusCode).toBe(200);
-    expect(me.json()).toMatchObject({ username: 'ada', role: 'owner' });
+    expect(me.json()).toMatchObject({ username: 'ada', role: 'owner', displayName: 'ada' });
 
     const loggedOut = await server().inject({
       method: 'POST',
@@ -323,6 +335,101 @@ describe.skipIf(databaseUrl === '')('auth http', () => {
 
     const otherIp = await login('ada', password, { remoteAddress: '203.0.113.51' });
     expect(otherIp.statusCode).toBe(200);
+  });
+
+  it('returns the saved display name', async () => {
+    await database()
+      .update(users)
+      .set({ displayName: 'Ada Lovelace' })
+      .where(eq(users.username, 'ada'));
+    const cookie = sessionCookie((await login('ada', password)).headers['set-cookie']);
+    const me = await server().inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } });
+    expect(me.json()).toMatchObject({ username: 'ada', displayName: 'Ada Lovelace' });
+  });
+
+  it('changes the password, keeps this session, and revokes the others', async () => {
+    const first = sessionCookie(
+      (await login('ada', password, { remoteAddress: '203.0.113.20' })).headers['set-cookie'],
+    );
+    const second = sessionCookie(
+      (await login('ada', password, { remoteAddress: '203.0.113.21' })).headers['set-cookie'],
+    );
+    const changed = await server().inject({
+      method: 'POST',
+      url: '/api/auth/change-password',
+      headers: { cookie: second, origin },
+      payload: { currentPassword: password, newPassword: 'another-horse-battery' },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json()).toEqual({ ok: true });
+
+    const oldSession = await server().inject({
+      method: 'GET',
+      url: '/api/auth/me',
+      headers: { cookie: first },
+    });
+    const currentSession = await server().inject({
+      method: 'GET',
+      url: '/api/auth/me',
+      headers: { cookie: second },
+    });
+    expect(oldSession.statusCode).toBe(401);
+    expect(currentSession.statusCode).toBe(200);
+
+    const oldPassword = await login('ada', password, { remoteAddress: '203.0.113.22' });
+    const newPassword = await login('ada', 'another-horse-battery', {
+      remoteAddress: '203.0.113.23',
+    });
+    expect(oldPassword.statusCode).toBe(401);
+    expect(newPassword.statusCode).toBe(200);
+  });
+
+  it('rejects a wrong, unchanged, or too-short new password', async () => {
+    const cookie = sessionCookie((await login('ada', password)).headers['set-cookie']);
+    const wrong = await changePassword(cookie, 'not-the-password', 'another-horse-battery');
+    const same = await changePassword(cookie, password, password);
+    const short = await changePassword(cookie, password, 'too-short');
+    const blocked = await server().inject({
+      method: 'POST',
+      url: '/api/auth/change-password',
+      headers: { cookie },
+      payload: { currentPassword: password, newPassword: 'another-horse-battery' },
+    });
+
+    expect(wrong.statusCode).toBe(401);
+    expect(wrong.json()).toEqual({ error: CURRENT_PASSWORD_ERROR });
+    expect(same.statusCode).toBe(400);
+    expect(same.json()).toEqual({ error: SAME_PASSWORD_ERROR });
+    expect(short.statusCode).toBe(400);
+    expect(short.json()).toEqual({ error: 'Password must be at least 12 characters.' });
+    expect(blocked.statusCode).toBe(403);
+    expect(blocked.json()).toEqual({ error: CSRF_ERROR });
+  });
+
+  it('returns 429 after five wrong current passwords', async () => {
+    const cookie = sessionCookie(
+      (await login('ada', password, { remoteAddress: '203.0.113.70' })).headers['set-cookie'],
+    );
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const failed = await server().inject({
+        method: 'POST',
+        url: '/api/auth/change-password',
+        headers: { cookie, origin },
+        payload: { currentPassword: 'not-the-password', newPassword: 'another-horse-battery' },
+        remoteAddress: '203.0.113.80',
+      });
+      expect(failed.statusCode).toBe(401);
+    }
+    const limited = await server().inject({
+      method: 'POST',
+      url: '/api/auth/change-password',
+      headers: { cookie, origin },
+      payload: { currentPassword: 'not-the-password', newPassword: 'another-horse-battery' },
+      remoteAddress: '203.0.113.80',
+    });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toEqual({ error: CHANGE_PASSWORD_RATE_LIMIT_ERROR });
+    expect(limited.headers['retry-after']).toBeDefined();
   });
 });
 

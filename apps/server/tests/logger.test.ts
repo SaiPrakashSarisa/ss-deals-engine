@@ -45,7 +45,11 @@ describe('logger', () => {
         authorization: 'Bearer secret-token',
         nested: { token: 'abc', password: 'hidden', sessionToken: 'raw-session-token' },
         req: {
-          body: { password: 'from-body' },
+          body: {
+            password: 'from-body',
+            currentPassword: 'current-secret',
+            newPassword: 'next-secret',
+          },
           headers: { cookie: 'ssd_session=raw-session-token' },
         },
       },
@@ -56,6 +60,8 @@ describe('logger', () => {
     expect(output).not.toContain('secret-token');
     expect(output).not.toContain('hidden');
     expect(output).not.toContain('from-body');
+    expect(output).not.toContain('current-secret');
+    expect(output).not.toContain('next-secret');
     expect(output).not.toContain('raw-session-token');
     expect(output).toContain('[Redacted]');
   });
