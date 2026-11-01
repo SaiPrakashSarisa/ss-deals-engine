@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  foreignKey,
   integer,
   pgEnum,
   pgTable,
@@ -58,6 +59,11 @@ export const publications = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    foreignKey({
+      name: 'publications_deal_product_deals_fk',
+      columns: [table.dealId, table.productId],
+      foreignColumns: [deals.id, deals.productId],
+    }),
     unique('publications_channel_deal_unique').on(table.channelId, table.dealId),
     uniqueIndex('publications_one_inflight_per_channel_product')
       .on(table.channelId, table.productId)

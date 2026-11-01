@@ -1,4 +1,4 @@
-import { index, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { index, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { products } from './products.js';
 import { users } from './users.js';
 
@@ -34,5 +34,8 @@ export const affiliateLinks = pgTable(
       .references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('affiliate_links_product_id_idx').on(table.productId)],
+  (table) => [
+    unique('affiliate_links_id_product_id_unique').on(table.id, table.productId),
+    index('affiliate_links_product_id_idx').on(table.productId),
+  ],
 );

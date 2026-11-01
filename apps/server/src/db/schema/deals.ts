@@ -7,7 +7,9 @@ import {
   pgEnum,
   pgTable,
   text,
+  foreignKey,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
@@ -78,6 +80,12 @@ export const deals = pgTable(
       'deals_offer_text_length',
       sql`${table.offerText} is null or char_length(${table.offerText}) <= 120`,
     ),
+    unique('deals_id_product_id_unique').on(table.id, table.productId),
+    foreignKey({
+      name: 'deals_link_product_affiliate_links_fk',
+      columns: [table.linkId, table.productId],
+      foreignColumns: [affiliateLinks.id, affiliateLinks.productId],
+    }),
     uniqueIndex('deals_one_active_per_product')
       .on(table.productId)
       .where(sql`${table.status} in ('draft', 'pending_approval', 'approved', 'scheduled')`),
