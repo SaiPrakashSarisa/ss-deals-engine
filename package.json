@@ -12,9 +12,9 @@
     "build": "pnpm --filter @ss-deals/server build",
     "start": "pnpm --filter @ss-deals/server start",
     "start:worker": "pnpm --filter @ss-deals/server start:worker",
-    "test": "pnpm --filter @ss-deals/server test",
+    "test": "pnpm -r test",
     "lint": "eslint . && prettier --check .",
-    "typecheck": "pnpm --filter @ss-deals/server typecheck",
+    "typecheck": "pnpm -r typecheck",
     "db:generate": "pnpm --filter @ss-deals/server db:generate",
     "db:migrate": "pnpm --filter @ss-deals/server db:migrate"
   },

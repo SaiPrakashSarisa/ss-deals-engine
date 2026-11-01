@@ -21,3 +21,17 @@ Drizzle ORM and drizzle-kit own the SQL migrations. The first migration creates 
 ### No scraping of retail sites
 
 Product and price data will come from official affiliate APIs and feeds. The platform will not scrape Amazon, Flipkart, or other retail sites.
+
+## 2026-10-31 — Quick-post bot
+
+### Standalone owner bot instead of the posting API
+
+The quick-post tool is an interim way for the owner to publish a deal to Telegram. It lives in `apps/quickpost` and does not read or write PostgreSQL. A later task can replace it with the real posting pipeline.
+
+### Long polling instead of a webhook
+
+The bot uses grammY long polling. It does not need a public URL.
+
+### Affiliate links are rebuilt from the ASIN
+
+The bot accepts an amazon.in product URL, keeps the ASIN, and rebuilds `https://www.amazon.in/dp/<ASIN>?tag=<AMAZON_TAG>`. It drops every other query parameter. It does not fetch the product page.
