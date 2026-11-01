@@ -1,6 +1,6 @@
 # API specification
 
-The HTTP API is the Fastify process in `apps/server`. This note covers sign-in. Deal and publishing routes are later tasks.
+The HTTP API is the Fastify process in `apps/server`. This note covers sign-in and deal drafts. Review actions and publishing are later tasks.
 
 ## Authentication
 
@@ -30,3 +30,39 @@ Five failed sign-in attempts for the same username and IP within 15 minutes retu
 Request bodies are limited to 16 KiB. Responses include nosniff, frame denial, a locked-down content security policy, and related browser headers. Logs redact cookies, session tokens, and passwords.
 
 `GET /health` is unchanged and does not require a session.
+
+## Deals
+
+Every deal route requires a signed-in session. `POST`, `PATCH`, and `DELETE` also need an allowed `Origin`, the same check as sign-in. A person sees and changes only deals they created. An admin can read any deal by id, including its image, and still sees only their own deals on `GET /api/deals`. Editing and sending for review stay with the person who created the draft.
+
+The server never requests the pasted URL or any Amazon page. It parses the link locally, stores money as integer paise, and forces `old_price_verified` to false. The product title is saved on `products.title`. There is no separate title column on `deals`.
+
+| Method   | Path                    | Body                             | Success             |
+| -------- | ----------------------- | -------------------------------- | ------------------- |
+| `POST`   | `/api/deals/check-url`  | `{ "url", "price?", "dealId?" }` | `200` URL check     |
+| `POST`   | `/api/deals`            | deal fields                      | `201` `{ "deal" }`  |
+| `GET`    | `/api/deals`            | none                             | `200` `{ "deals" }` |
+| `GET`    | `/api/deals/:id`        | none                             | `200` `{ "deal" }`  |
+| `PATCH`  | `/api/deals/:id`        | deal fields                      | `200` `{ "deal" }`  |
+| `POST`   | `/api/deals/:id/submit` | none                             | `200` `{ "deal" }`  |
+| `POST`   | `/api/deals/:id/image`  | one multipart file               | `200` `{ "deal" }`  |
+| `GET`    | `/api/deals/:id/image`  | none                             | image bytes         |
+| `DELETE` | `/api/deals/:id/image`  | none                             | `204`               |
+
+`GET /api/deals?status=` filters the caller's own list. An unknown status is `400`.
+
+Deal fields: `productUrl` (required), `title` (required, max 200), `price` (required, whole rupees), `oldPrice` (optional, must be higher than the price), `offer` (max 120), `highlights` (0 to 3 strings, max 80 each), `shortLink` (optional https link on `SHORT_LINK_HOSTS`), `sourceNote` (max 120), `clerkNotes` (max 300). Invalid fields return `400` `{ "error", "fields" }`.
+
+`POST /api/deals` creates a `draft`. It upserts the Amazon product (`external_id` is the ASIN) and an affiliate link (`verification` `tag_appended`, `validation_status` `structure_ok`, tagged with `AMAZON_TAG`). It refuses with `409` when that product already has a deal in `draft`, `pending_approval`, `approved`, or `scheduled`, or when the last published price is missing or is not higher than the new price. A missing earlier price tells the person to ask an admin. Each create writes `audit_log` action `deal.create`.
+
+`POST /api/deals/check-url` returns `{ "ok", "asin", "problems", "code", "activeDeal", "repost", "previousPricePaise", "newPricePaise", "taggedUrl" }`. `code` is `ok`, `invalid`, `in_queue`, `posted_lower`, `posted_blocked`, `posted_unknown_price`, or `awaiting_price`. Passing the caller's own `dealId` leaves that draft out of the active-deal check. It inserts nothing.
+
+`PATCH` updates only the creator's own `draft`. Any other status is `409`. A deal the caller cannot read is `404`. An admin who did not create the draft gets `403`.
+
+`POST /api/deals/:id/submit` moves `draft` to `pending_approval`, sets `submitted_at`, and writes a `price_snapshots` row with origin `clerk_entered`. The title and product link must still be present. A second submit, or a submit from any other status, is `409`.
+
+Images accept one JPEG, PNG, or WebP file. The type is taken from magic bytes. The file is re-encoded to a maximum 1600px edge with metadata removed, stored under `UPLOAD_DIR` with a random name, and recorded on the deal. Replacing or deleting an image removes the previous file. `GET` returns the bytes only to someone who can read that deal, with `Cache-Control: private, no-store`. Files are not served from a public directory. A non-image is `400`. A file over `MAX_UPLOAD_MB` is `413`.
+
+Creating a draft and uploading an image are each limited to 30 times per person per hour. Over the limit is `429` with `Retry-After`.
+
+`AMAZON_TAG` is required. `SHORT_LINK_HOSTS` defaults to `amzn.to,link.amazon`. `UPLOAD_DIR` defaults to `./uploads`. `MAX_UPLOAD_MB` defaults to 5.

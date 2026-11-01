@@ -1,6 +1,6 @@
 # Admin interface
 
-`apps/web` is the internal desk for two people: an owner and a clerk. It is a Next.js app on port 3001. The browser talks only to that origin. Next.js proxies `/api/auth/*` to the Fastify API (`API_URL`, default `http://127.0.0.1:3000`). The session cookie is `HttpOnly`, so page scripts cannot read it.
+`apps/web` is the internal desk for two people: an owner and a clerk. It is a Next.js app on port 3001. The browser talks only to that origin. Next.js proxies `/api/auth/*` and `/api/deals/*` to the Fastify API (`API_URL`, default `http://127.0.0.1:3000`). The session cookie is `HttpOnly`, so page scripts cannot read it.
 
 ## Pages
 
@@ -9,7 +9,9 @@
 | `/login`           | signed out | Username and password. Errors stay on the form. The button stays disabled while the request is in flight. Too many attempts shows the wait message. |
 | `/`                | signed in  | Sends an admin to `/admin` and everyone else to `/deals`.                                                                                           |
 | `/admin`           | admin      | Placeholder: Review queue coming in T6. Anyone else receives 403: "You don't have access to this page."                                             |
-| `/deals`           | signed in  | Deals home. The form will live at `/deals/new` and a person's own list at `/deals/mine`.                                                            |
+| `/deals`           | signed in  | Two buttons: New deal and My deals.                                                                                                                 |
+| `/deals/new`       | signed in  | Deal form. `?id=` opens a draft, including one that was sent back. Other statuses are read-only.                                                    |
+| `/deals/mine`      | signed in  | That person's deals, with a status badge and the review note when a deal was sent back or rejected.                                                 |
 | `/account`         | signed in  | Change password. The current sign-in stays. Other sessions are signed out.                                                                          |
 | `/owner`, `/clerk` | signed in  | Redirect to `/admin` and `/deals`.                                                                                                                  |
 
