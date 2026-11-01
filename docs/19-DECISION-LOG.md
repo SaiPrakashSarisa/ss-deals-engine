@@ -104,7 +104,11 @@ The desk has an owner and a clerk. Passwords use Node's built-in scrypt. Session
 
 ### The product title stays on the product
 
-`deals` has no title column. A draft writes `products.title` when it creates or updates the Amazon product. A later draft for the same ASIN replaces that title. No migration was added.
+A draft also writes `products.title` when it creates or updates the Amazon product. That column is the latest known title. Deal screens do not read it.
+
+### Each deal keeps its own title
+
+`deals.title` is required and 1 to 200 characters. Creating or editing a draft writes that column. A later deal for the same ASIN does not change an earlier deal's title. The migration backfills existing rows from `products.title`, and uses `Untitled` only when that title is missing.
 
 ### The form never fetches Amazon
 

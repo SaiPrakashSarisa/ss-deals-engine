@@ -179,6 +179,7 @@ async function seedPublished(
       productId: product.id,
       linkId: link.id,
       status: 'published',
+      title: 'Old kettle',
       pricePaise: postedPricePaise ?? 100,
       oldPriceVerified: false,
       highlights: [],
@@ -411,6 +412,23 @@ describe.skipIf(databaseUrl === '')('deal http', () => {
     const cookie = await login('grace');
     const lower = await postDeal(cookie, dealBody({ price: '1999', oldPrice: '' }));
     expect(lower.statusCode).toBe(201);
+    expect(lower.json().deal.title).toBe('Blue kettle');
+    const stored = await database()
+      .select({ id: deals.id, title: deals.title, status: deals.status })
+      .from(deals);
+    const published = stored.find((row) => row.status === 'published');
+    expect(published?.title).toBe('Old kettle');
+    expect(stored.find((row) => row.status === 'draft')?.title).toBe('Blue kettle');
+    const [product] = await database().select({ title: products.title }).from(products);
+    expect(product?.title).toBe('Blue kettle');
+    const ada = await login('ada');
+    const earlier = await server().inject({
+      method: 'GET',
+      url: `/api/deals/${published?.id}`,
+      headers: { cookie: ada },
+    });
+    expect(earlier.statusCode).toBe(200);
+    expect(earlier.json().deal.title).toBe('Old kettle');
 
     await truncate();
     adaId = await insertUser('ada', 'owner');
@@ -502,6 +520,18 @@ describe.skipIf(databaseUrl === '')('deal http', () => {
     const anonymous = await server().inject({ method: 'GET', url: '/api/deals' });
     expect(anonymous.statusCode).toBe(401);
     expect(anonymous.json().error).toBe(SIGN_IN_REQUIRED);
+    const config = await server().inject({
+      method: 'GET',
+      url: '/api/deals/config',
+      headers: { cookie },
+    });
+    expect(config.statusCode).toBe(200);
+    expect(config.json()).toEqual({
+      shortLinkHosts: ['amzn.to', 'link.amazon'],
+      maxUploadMb: 4_096 / (1024 * 1024),
+    });
+    const hidden = await server().inject({ method: 'GET', url: '/api/deals/config' });
+    expect(hidden.statusCode).toBe(401);
     const badStatus = await server().inject({
       method: 'GET',
       url: '/api/deals?status=nope',
@@ -516,18 +546,10 @@ describe.skipIf(databaseUrl === '')('deal http', () => {
     const id = created.json().deal.id as string;
     await database()
       .update(products)
-      .set({ title: null })
-      .where(eq(products.externalId, 'B0TEST1234'));
-    const missing = await submitDeal(cookie, id);
-    expect(missing.statusCode).toBe(400);
-    expect(missing.json().fields.title).toMatch(/title/i);
-    expect(await database().select().from(priceSnapshots)).toHaveLength(0);
-
-    await database()
-      .update(products)
-      .set({ title: 'Blue kettle' })
+      .set({ title: 'Latest catalogue name' })
       .where(eq(products.externalId, 'B0TEST1234'));
     const submitted = await submitDeal(cookie, id);
+    expect(submitted.json().deal.title).toBe('Blue kettle');
     expect(submitted.statusCode).toBe(200);
     expect(submitted.json().deal.status).toBe('pending_approval');
     expect(submitted.json().deal.reviewNote).toBeNull();

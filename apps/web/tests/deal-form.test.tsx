@@ -103,7 +103,12 @@ describe('DealForm', () => {
     let call = 0;
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => Response.json(responses[Math.min(call++, responses.length - 1)])),
+      vi.fn(async (url: string) => {
+        if (String(url).endsWith('/config')) {
+          return Response.json({ shortLinkHosts: ['amzn.to', 'link.amazon'], maxUploadMb: 5 });
+        }
+        return Response.json(responses[Math.min(call++, responses.length - 1)]!);
+      }),
     );
     render(<DealForm />);
     const url = screen.getByLabelText(/^Product page URL/);
@@ -140,6 +145,9 @@ describe('DealForm', () => {
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
         const path = String(url);
+        if (path.endsWith('/config')) {
+          return Response.json({ shortLinkHosts: ['amzn.to', 'link.amazon'], maxUploadMb: 5 });
+        }
         if (path.endsWith('/check-url')) {
           return Response.json(checkResponse());
         }

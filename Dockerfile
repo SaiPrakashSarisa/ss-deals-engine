@@ -21,6 +21,7 @@ COPY apps/server/tsconfig.json ./apps/server/tsconfig.json
 COPY apps/server/src ./apps/server/src
 COPY apps/server/drizzle ./apps/server/drizzle
 RUN pnpm --filter @ss-deals/core build
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
 WORKDIR /app/apps/server
 USER node
 ENTRYPOINT ["dumb-init", "--"]

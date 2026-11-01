@@ -15,14 +15,12 @@ export async function reencodeImage(bytes: Buffer): Promise<EncodedImage | undef
     return undefined;
   }
   try {
-    let pipeline = sharp(bytes, { failOn: 'error', animated: false })
-      .rotate()
-      .resize({
-        width: MAX_EDGE,
-        height: MAX_EDGE,
-        fit: 'inside',
-        withoutEnlargement: true,
-      });
+    let pipeline = sharp(bytes, { failOn: 'error', animated: false }).rotate().resize({
+      width: MAX_EDGE,
+      height: MAX_EDGE,
+      fit: 'inside',
+      withoutEnlargement: true,
+    });
     if (mime === 'image/jpeg') {
       pipeline = pipeline.jpeg({ quality: 85 });
     } else if (mime === 'image/png') {

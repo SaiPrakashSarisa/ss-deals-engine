@@ -11,10 +11,10 @@ Phase 1 stores the clerk review flow in PostgreSQL. Drizzle schema modules live 
 | Table             | Purpose                                                                                                                                                                                          |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `users`           | Owner and clerk accounts. `password_hash` is empty until auth exists. `can_publish_directly` is stored and unused. `telegram_user_id` is unique when it is set; several users may leave it null. |
-| `products`        | One row per retailer listing. `(source, external_id)` is unique. `external_id` is the ASIN or the other retailer's id.                                                                           |
+| `products`        | One row per retailer listing. `(source, external_id)` is unique. `external_id` is the ASIN or the other retailer's id. `title` is the latest known title and is not shown on a deal.             |
 | `affiliate_links` | The original URL, the affiliate URL, and an optional short URL for a product. `verification` records how the affiliate URL was produced.                                                         |
 | `price_snapshots` | A price observation in paise. `origin` says who or what recorded it. `deal_id` is optional.                                                                                                      |
-| `deals`           | A clerk submission moving through review. Holds the price, optional verified old price, highlights, offer text, notes, score, and an image path.                                                 |
+| `deals`           | A clerk submission moving through review. Holds its own title, the price, optional verified old price, highlights, offer text, notes, score, and an image path.                                  |
 | `content_drafts`  | Versioned post body for a deal. At most one row per deal has `is_current = true`.                                                                                                                |
 | `channels`        | A destination. Phase 1 only defines the `telegram` platform.                                                                                                                                     |
 | `publications`    | One attempt to put a deal on a channel. `posted_price_paise` is the price shown in the post. It is null for imported history whose price is unknown.                                             |
@@ -30,6 +30,8 @@ Phase 1 stores the clerk review flow in PostgreSQL. Drizzle schema modules live 
 **Prices.** `deals.price_paise` and `price_snapshots.price_paise` must be greater than zero. `old_price_paise` is null or strictly greater than `price_paise`. `old_price_verified` cannot be true when `old_price_paise` is null.
 
 **Offer text.** `offer_text` is null or at most 120 characters.
+
+**Deal title.** `deals.title` is required and 1 to 200 characters. It is the title of that deal. A later deal for the same product does not change it. `products.title` is updated to the latest known title and is not what deal screens show.
 
 **Current draft.** Partial unique index `content_drafts_one_current_per_deal`.
 

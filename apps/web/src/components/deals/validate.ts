@@ -1,7 +1,5 @@
 import { parsePriceInput, validateShortLink } from '@ss-deals/core';
 
-export const PREVIEW_SHORT_HOSTS = ['amzn.to', 'link.amazon'] as const;
-
 export type DealFormValues = {
   title: string;
   price: string;
@@ -13,7 +11,10 @@ export type DealFormValues = {
   notes: string;
 };
 
-export function validateDealForm(values: DealFormValues): Record<string, string> {
+export function validateDealForm(
+  values: DealFormValues,
+  shortLinkHosts: readonly string[] | null,
+): Record<string, string> {
   const fields: Record<string, string> = {};
   const title = values.title.trim();
   if (title.length === 0) {
@@ -48,7 +49,11 @@ export function validateDealForm(values: DealFormValues): Record<string, string>
   }
 
   const shortLink = values.shortLink.trim();
-  if (shortLink.length > 0 && !validateShortLink(shortLink, PREVIEW_SHORT_HOSTS).ok) {
+  if (
+    shortLink.length > 0 &&
+    shortLinkHosts !== null &&
+    !validateShortLink(shortLink, shortLinkHosts).ok
+  ) {
     fields.shortLink = 'Paste an https short link, or leave this empty.';
   }
   if (values.sourceNote.trim().length > 120) {

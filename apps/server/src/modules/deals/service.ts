@@ -35,7 +35,7 @@ const ACTIVE_DEAL_STATUSES = ['draft', 'pending_approval', 'approved', 'schedule
 const dealColumns = {
   id: deals.id,
   status: deals.status,
-  title: products.title,
+  title: deals.title,
   productUrl: affiliateLinks.originalUrl,
   taggedUrl: affiliateLinks.affiliateUrl,
   shortLink: affiliateLinks.shortUrl,
@@ -62,7 +62,7 @@ const dealColumns = {
 type DealRow = {
   id: string;
   status: DealStatus;
-  title: string | null;
+  title: string;
   productUrl: string;
   taggedUrl: string;
   shortLink: string | null;
@@ -89,7 +89,7 @@ type DealRow = {
 export type DealJson = {
   id: string;
   status: DealStatus;
-  title: string | null;
+  title: string;
   productUrl: string;
   taggedUrl: string;
   shortLink: string | null;
@@ -346,6 +346,7 @@ async function requireOwnDraft(db: DealDb, user: AuthUser, id: string): Promise<
 
 function dealValues(input: DealInput) {
   return {
+    title: input.title,
     pricePaise: input.pricePaise,
     oldPricePaise: input.oldPricePaise,
     oldPriceVerified: false,

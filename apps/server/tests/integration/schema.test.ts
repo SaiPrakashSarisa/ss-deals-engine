@@ -170,6 +170,7 @@ async function insertDeal(input: {
       linkId: input.linkId,
       createdBy: input.createdBy,
       status: input.status ?? 'draft',
+      title: 'Kettle',
       pricePaise: input.pricePaise ?? 10_000,
       ...(input.oldPricePaise === undefined ? {} : { oldPricePaise: input.oldPricePaise }),
       ...(input.oldPriceVerified === undefined ? {} : { oldPriceVerified: input.oldPriceVerified }),

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
+import { ensureUploadDir } from './uploads.js';
 
 const configSchema = z
   .object({
@@ -208,5 +209,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`Invalid environment configuration: ${formatIssues(parsed.error)}`);
   }
 
+  ensureUploadDir(parsed.data.UPLOAD_DIR);
   return parsed.data;
 }

@@ -103,6 +103,16 @@ export function registerDealRoutes(app: FastifyInstance, deps: DealRouteDeps): v
     deps.uploadLimiter ?? createWindowLimiter({ limit: UPLOADS_PER_HOUR, windowMs: HOUR_MS });
   const linkOptions = { amazonTag: deps.amazonTag, shortLinkHosts: deps.shortLinkHosts };
 
+  app.get('/api/deals/config', { preHandler: guard }, async (request, reply) => {
+    if (request.authUser === null) {
+      return reply.code(401).send({ error: SIGN_IN_REQUIRED });
+    }
+    return {
+      shortLinkHosts: deps.shortLinkHosts,
+      maxUploadMb: deps.maxUploadBytes / (1024 * 1024),
+    };
+  });
+
   app.post('/api/deals/check-url', { preHandler: guard }, async (request, reply) => {
     const user = request.authUser;
     if (user === null) {

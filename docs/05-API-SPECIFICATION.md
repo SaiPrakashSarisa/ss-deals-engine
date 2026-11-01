@@ -35,19 +35,22 @@ Request bodies are limited to 16 KiB. Responses include nosniff, frame denial, a
 
 Every deal route requires a signed-in session. `POST`, `PATCH`, and `DELETE` also need an allowed `Origin`, the same check as sign-in. A person sees and changes only deals they created. An admin can read any deal by id, including its image, and still sees only their own deals on `GET /api/deals`. Editing and sending for review stay with the person who created the draft.
 
-The server never requests the pasted URL or any Amazon page. It parses the link locally, stores money as integer paise, and forces `old_price_verified` to false. The product title is saved on `products.title`. There is no separate title column on `deals`.
+The server never requests the pasted URL or any Amazon page. It parses the link locally, stores money as integer paise, and forces `old_price_verified` to false. The deal title is stored on `deals.title`. `products.title` keeps the latest known title and is not returned on deal screens.
 
-| Method   | Path                    | Body                             | Success             |
-| -------- | ----------------------- | -------------------------------- | ------------------- |
-| `POST`   | `/api/deals/check-url`  | `{ "url", "price?", "dealId?" }` | `200` URL check     |
-| `POST`   | `/api/deals`            | deal fields                      | `201` `{ "deal" }`  |
-| `GET`    | `/api/deals`            | none                             | `200` `{ "deals" }` |
-| `GET`    | `/api/deals/:id`        | none                             | `200` `{ "deal" }`  |
-| `PATCH`  | `/api/deals/:id`        | deal fields                      | `200` `{ "deal" }`  |
-| `POST`   | `/api/deals/:id/submit` | none                             | `200` `{ "deal" }`  |
-| `POST`   | `/api/deals/:id/image`  | one multipart file               | `200` `{ "deal" }`  |
-| `GET`    | `/api/deals/:id/image`  | none                             | image bytes         |
-| `DELETE` | `/api/deals/:id/image`  | none                             | `204`               |
+| Method   | Path                    | Body                             | Success                                     |
+| -------- | ----------------------- | -------------------------------- | ------------------------------------------- |
+| `GET`    | `/api/deals/config`     | none                             | `200` `{ "shortLinkHosts", "maxUploadMb" }` |
+| `POST`   | `/api/deals/check-url`  | `{ "url", "price?", "dealId?" }` | `200` URL check                             |
+| `POST`   | `/api/deals`            | deal fields                      | `201` `{ "deal" }`                          |
+| `GET`    | `/api/deals`            | none                             | `200` `{ "deals" }`                         |
+| `GET`    | `/api/deals/:id`        | none                             | `200` `{ "deal" }`                          |
+| `PATCH`  | `/api/deals/:id`        | deal fields                      | `200` `{ "deal" }`                          |
+| `POST`   | `/api/deals/:id/submit` | none                             | `200` `{ "deal" }`                          |
+| `POST`   | `/api/deals/:id/image`  | one multipart file               | `200` `{ "deal" }`                          |
+| `GET`    | `/api/deals/:id/image`  | none                             | image bytes                                 |
+| `DELETE` | `/api/deals/:id/image`  | none                             | `204`                                       |
+
+`GET /api/deals/config` is for a signed-in person. `shortLinkHosts` is the server's `SHORT_LINK_HOSTS`. `maxUploadMb` is the upload limit in megabytes. The deal form uses these instead of a fixed host list. An anonymous call is `401`.
 
 `GET /api/deals?status=` filters the caller's own list. An unknown status is `400`.
 

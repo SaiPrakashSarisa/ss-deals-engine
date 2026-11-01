@@ -11,7 +11,7 @@ import {
 } from 'react';
 import { follow } from '../../lib/navigate';
 import { bannerForCheck, checkAllowsSave, type UrlBanner } from './banner';
-import { PREVIEW_SHORT_HOSTS, validateDealForm } from './validate';
+import { validateDealForm } from './validate';
 
 const fieldClass =
   'min-h-14 w-full rounded-xl border-2 border-slate-400 bg-white px-4 text-lg text-ink';
@@ -53,6 +53,8 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
   const [offer, setOffer] = useState('');
   const [highlights, setHighlights] = useState<[string, string, string]>(['', '', '']);
   const [shortLink, setShortLink] = useState('');
+  const [shortLinkHosts, setShortLinkHosts] = useState<string[] | null>(null);
+  const [maxUploadMb, setMaxUploadMb] = useState<number | null>(null);
   const [sourceNote, setSourceNote] = useState('');
   const [notes, setNotes] = useState('');
   const [taggedUrl, setTaggedUrl] = useState<string | null>(null);
@@ -77,6 +79,33 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
   urlRef.current = productUrl;
   priceRef.current = price;
   dealRef.current = dealId;
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch('/api/deals/config');
+        const body = (await response.json().catch(() => null)) as {
+          shortLinkHosts?: unknown;
+          maxUploadMb?: unknown;
+        } | null;
+        if (cancelled || !response.ok || body === null || !Array.isArray(body.shortLinkHosts)) {
+          return;
+        }
+        setShortLinkHosts(body.shortLinkHosts.filter((host) => typeof host === 'string'));
+        if (typeof body.maxUploadMb === 'number' && Number.isFinite(body.maxUploadMb)) {
+          setMaxUploadMb(body.maxUploadMb);
+        }
+      } catch {
+        if (!cancelled) {
+          setFormError('The deal service is not available. Try again.');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (file === null) {
@@ -250,16 +279,19 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
   async function persist(intent: 'draft' | 'review'): Promise<void> {
     setFormError(undefined);
     setNotice(undefined);
-    const fields = validateDealForm({
-      title,
-      price,
-      oldPrice,
-      offer,
-      highlights: [...highlights],
-      shortLink,
-      sourceNote,
-      notes,
-    });
+    const fields = validateDealForm(
+      {
+        title,
+        price,
+        oldPrice,
+        offer,
+        highlights: [...highlights],
+        shortLink,
+        sourceNote,
+        notes,
+      },
+      shortLinkHosts,
+    );
     setFieldErrors(fields);
     if (Object.keys(fields).length > 0 || !checkAllowsSave(code)) {
       if (Object.keys(fields).length > 0) {
@@ -366,7 +398,10 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
     void persist(intent);
   }
 
-  const preview = buildPreview({ title, price, oldPrice, offer, highlights, shortLink, taggedUrl });
+  const preview = buildPreview(
+    { title, price, oldPrice, offer, highlights, shortLink, taggedUrl },
+    shortLinkHosts,
+  );
   const imageSrc =
     localPreview ??
     (existingImage && !removeExisting && dealId !== undefined
@@ -585,7 +620,11 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
           />
         </Field>
 
-        <Field id="image" label="Image">
+        <Field
+          id="image"
+          label="Image"
+          hint={maxUploadMb === null ? undefined : `Up to ${maxUploadMb} MB.`}
+        >
           <input
             id="image"
             ref={fileInput}
@@ -595,6 +634,12 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
             onChange={(event) => {
               const picked = event.target.files?.[0];
               if (picked === undefined) {
+                return;
+              }
+              if (maxUploadMb !== null && picked.size > maxUploadMb * 1024 * 1024) {
+                setFile(null);
+                setFormError(`Image must be under ${maxUploadMb} MB.`);
+                event.target.value = '';
                 return;
               }
               setFile(picked);
@@ -658,15 +703,18 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
   );
 }
 
-function buildPreview(input: {
-  title: string;
-  price: string;
-  oldPrice: string;
-  offer: string;
-  highlights: string[];
-  shortLink: string;
-  taggedUrl: string | null;
-}) {
+function buildPreview(
+  input: {
+    title: string;
+    price: string;
+    oldPrice: string;
+    offer: string;
+    highlights: string[];
+    shortLink: string;
+    taggedUrl: string | null;
+  },
+  shortLinkHosts: readonly string[] | null,
+) {
   const amount = parsePriceInput(input.price);
   const title = input.title.trim();
   if (amount === undefined || title.length === 0 || input.taggedUrl === null) {
@@ -674,7 +722,10 @@ function buildPreview(input: {
   }
   const oldAmount = input.oldPrice.trim() === '' ? undefined : parsePriceInput(input.oldPrice);
   const shortLink = input.shortLink.trim();
-  const shortOk = shortLink.length > 0 && validateShortLink(shortLink, PREVIEW_SHORT_HOSTS).ok;
+  const shortOk =
+    shortLink.length > 0 &&
+    shortLinkHosts !== null &&
+    validateShortLink(shortLink, shortLinkHosts).ok;
   return formatPost({
     title,
     price: amount,

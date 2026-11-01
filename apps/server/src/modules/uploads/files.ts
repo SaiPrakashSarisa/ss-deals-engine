@@ -55,10 +55,7 @@ export async function readStoredImage(
   }
 }
 
-export async function removeStoredImage(
-  uploadDir: string,
-  filename: string | null,
-): Promise<void> {
+export async function removeStoredImage(uploadDir: string, filename: string | null): Promise<void> {
   if (filename === null) {
     return;
   }

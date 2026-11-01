@@ -38,6 +38,7 @@ export const deals = pgTable(
       .notNull()
       .references(() => affiliateLinks.id),
     status: dealStatusEnum('status').notNull(),
+    title: text('title').notNull(),
     pricePaise: integer('price_paise').notNull(),
     oldPricePaise: integer('old_price_paise'),
     oldPriceVerified: boolean('old_price_verified').notNull().default(false),
@@ -80,6 +81,7 @@ export const deals = pgTable(
       'deals_offer_text_length',
       sql`${table.offerText} is null or char_length(${table.offerText}) <= 120`,
     ),
+    check('deals_title_length', sql`char_length(${table.title}) between 1 and 200`),
     unique('deals_id_product_id_unique').on(table.id, table.productId),
     foreignKey({
       name: 'deals_link_product_affiliate_links_fk',
