@@ -2,10 +2,13 @@ import type { SessionUser } from '../lib/session';
 
 const links = {
   owner: [
-    { href: '/owner', label: 'Review queue' },
-    { href: '/clerk', label: 'New deal' },
+    { href: '/admin', label: 'Review queue' },
+    { href: '/deals/new', label: 'New deal' },
   ],
-  clerk: [{ href: '/clerk', label: 'New deal' }],
+  clerk: [
+    { href: '/deals/new', label: 'New deal' },
+    { href: '/deals/mine', label: 'My deals' },
+  ],
 } as const;
 
 export function RoleNav({ role }: { role: SessionUser['role'] }) {

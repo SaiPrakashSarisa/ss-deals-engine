@@ -1,10 +1,14 @@
 import { cookies } from 'next/headers';
+import { homePath, type DeskRole } from './paths';
 
 export type SessionUser = {
   id: string;
   username: string;
-  role: 'owner' | 'clerk';
+  displayName: string;
+  role: DeskRole;
 };
+
+export { homePath };
 
 export function apiUrl(): string {
   const value = process.env.API_URL?.trim();
@@ -15,10 +19,6 @@ export function apiUrl(): string {
 export function sessionCookieName(): string {
   const name = process.env.SESSION_COOKIE_NAME?.trim();
   return name === undefined || name.length === 0 ? 'ssd_session' : name;
-}
-
-export function homePath(role: SessionUser['role']): '/owner' | '/clerk' {
-  return role === 'owner' ? '/owner' : '/clerk';
 }
 
 export async function getCurrentUser(): Promise<SessionUser | null> {
@@ -44,5 +44,11 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   ) {
     return null;
   }
-  return { id: body.id, username: body.username, role: body.role };
+  const named = typeof body.displayName === 'string' ? body.displayName.trim() : '';
+  return {
+    id: body.id,
+    username: body.username,
+    displayName: named.length === 0 ? body.username : named,
+    role: body.role,
+  };
 }

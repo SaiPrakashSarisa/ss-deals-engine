@@ -5,6 +5,7 @@ const METHODS: Record<string, string> = {
   login: 'POST',
   logout: 'POST',
   me: 'GET',
+  'change-password': 'POST',
 };
 
 const BODY_LIMIT = 16 * 1024;

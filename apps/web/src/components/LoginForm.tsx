@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { follow } from '../lib/navigate';
+import { homePath } from '../lib/paths';
 
 const FALLBACK_ERROR = 'Sign-in failed. Try again.';
 const RATE_LIMIT_FALLBACK = 'Too many sign-in attempts. Wait a few minutes and try again.';
@@ -26,7 +27,7 @@ export function LoginForm() {
       });
       const body = (await response.json().catch(() => null)) as {
         error?: unknown;
-        user?: { role?: string };
+        user?: { role?: 'owner' | 'clerk' };
       } | null;
       if (response.status === 429) {
         setError(typeof body?.error === 'string' ? body.error : RATE_LIMIT_FALLBACK);
@@ -36,7 +37,7 @@ export function LoginForm() {
         setError(typeof body?.error === 'string' ? body.error : FALLBACK_ERROR);
         return;
       }
-      follow(body?.user?.role === 'owner' ? '/owner' : '/clerk');
+      follow(homePath(body?.user?.role === 'owner' ? 'owner' : 'clerk'));
     } catch {
       setError(FALLBACK_ERROR);
     } finally {
