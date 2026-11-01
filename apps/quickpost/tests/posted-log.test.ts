@@ -31,6 +31,22 @@ describe('PostedLog', () => {
     expect(await log.read()).toEqual([entry]);
   });
 
+  it('round-trips the post mode and which link was shown', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'quickpost-log-'));
+    directories.push(dir);
+    const log = new PostedLog(join(dir, 'posted.json'));
+    const entry: PostedEntry = {
+      asin: 'B0CABCDEFG',
+      timestamp: '2026-10-31T10:00:00.000Z',
+      message_id: 5,
+      mode: 'photo',
+      link: 'short',
+    };
+
+    await log.append(entry);
+    expect(await log.read()).toEqual([entry]);
+  });
+
   it('appends concurrently without dropping entries', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'quickpost-log-'));
     directories.push(dir);

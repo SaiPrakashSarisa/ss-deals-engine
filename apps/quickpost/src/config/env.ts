@@ -3,6 +3,11 @@ import { redactToken } from '../lib/redact.js';
 
 const nodeEnvironments = new Set(['development', 'test', 'production']);
 const logLevels = new Set(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']);
+const linkStyleSchema = z.enum(['text', 'button', 'both']);
+const hostnamePattern =
+  /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+export const DEFAULT_SHORT_LINK_HOSTS = ['amzn.to', 'link.amazon'] as const;
 
 const configSchema = z
   .object({
@@ -15,6 +20,9 @@ const configSchema = z
     DAILY_POST_LIMIT: z.number().int().positive(),
     DATA_DIR: z.string().min(1),
     TZ: z.string().min(1),
+    SHORT_LINK_HOSTS: z.array(z.string().regex(hostnamePattern)).min(1),
+    LINK_STYLE: linkStyleSchema,
+    POST_FOOTER: z.string().max(120),
   })
   .strict();
 
@@ -44,6 +52,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const amazonTag = requireAmazonTag(env.AMAZON_TAG);
   const dailyPostLimit = parseDailyPostLimit(env.DAILY_POST_LIMIT);
   const dataDir = parseDataDir(env.DATA_DIR);
+  const shortLinkHosts = parseShortLinkHosts(env.SHORT_LINK_HOSTS);
+  const linkStyle = parseLinkStyle(env.LINK_STYLE);
+  const postFooter = parsePostFooter(env.POST_FOOTER);
 
   const parsed = configSchema.safeParse({
     NODE_ENV: nodeEnv,
@@ -55,6 +66,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     DAILY_POST_LIMIT: dailyPostLimit,
     DATA_DIR: dataDir,
     TZ: timezone,
+    SHORT_LINK_HOSTS: shortLinkHosts,
+    LINK_STYLE: linkStyle,
+    POST_FOOTER: postFooter,
   });
 
   if (!parsed.success) {
@@ -145,6 +159,45 @@ function parseDataDir(value: string | undefined): string {
     return './data';
   }
   return value.trim();
+}
+
+function parseShortLinkHosts(value: string | undefined): string[] {
+  const raw =
+    value === undefined || value.trim() === '' ? DEFAULT_SHORT_LINK_HOSTS.join(',') : value;
+  const hosts = raw
+    .split(',')
+    .map((host) => host.trim().toLowerCase())
+    .filter((host) => host.length > 0);
+  if (hosts.length === 0 || hosts.some((host) => !hostnamePattern.test(host))) {
+    throw new Error(
+      'Invalid environment configuration: SHORT_LINK_HOSTS must be a comma-separated list of hostnames',
+    );
+  }
+  return hosts;
+}
+
+function parsePostFooter(value: string | undefined): string {
+  if (value === undefined) {
+    return '';
+  }
+  const footer = value.trim();
+  if (footer.length > 120) {
+    throw new Error(
+      'Invalid environment configuration: POST_FOOTER must be 120 characters or fewer',
+    );
+  }
+  return footer;
+}
+
+function parseLinkStyle(value: string | undefined): z.infer<typeof linkStyleSchema> {
+  if (value === undefined || value.trim() === '') {
+    return 'text';
+  }
+  const parsed = linkStyleSchema.safeParse(value.trim());
+  if (!parsed.success) {
+    throw new Error('Invalid environment configuration: LINK_STYLE must be text, button, or both');
+  }
+  return parsed.data;
 }
 
 function assertTimeZone(timeZone: string): void {

@@ -20,6 +20,7 @@ export async function startBot(): Promise<void> {
   const api = createGrammyApi(
     {
       sendMessage: (chatId, text, extra) => bot.api.sendMessage(chatId, text, extra),
+      sendPhoto: (chatId, photo, extra) => bot.api.sendPhoto(chatId, photo, extra),
       answerCallbackQuery: (callbackQueryId) => bot.api.answerCallbackQuery(callbackQueryId),
     },
     defaultSleep,
@@ -44,6 +45,20 @@ export async function startBot(): Promise<void> {
       return;
     }
     await app.onMessage({ chatId: ctx.chat.id, userId, text: ctx.message.text });
+  });
+
+  bot.on('message:photo', async (ctx) => {
+    const userId = ctx.from?.id;
+    const fileId = ctx.message.photo.at(-1)?.file_id;
+    if (userId === undefined || fileId === undefined || fileId.length === 0) {
+      return;
+    }
+    await app.onMessage({
+      chatId: ctx.chat.id,
+      userId,
+      text: ctx.message.caption ?? '',
+      photoFileId: fileId,
+    });
   });
 
   bot.on('callback_query:data', async (ctx) => {

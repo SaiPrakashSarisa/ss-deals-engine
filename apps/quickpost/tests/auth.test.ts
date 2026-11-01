@@ -47,6 +47,13 @@ describe('authorization', () => {
 
     expect(harness.api.messages).toHaveLength(2);
     expect(harness.api.messages[0]?.text).toContain('title: Product name');
+    expect(harness.api.messages[0]?.text).toContain('offer: Bank offer');
+    expect(harness.api.messages[0]?.text).toContain('short: https://amzn.to/example');
+    expect(harness.api.messages[0]?.text).toContain('preview: on');
+    expect(harness.api.messages[0]?.text).toContain('percent off');
+    expect(harness.api.messages[0]?.text).toContain('Listed at');
+    expect(harness.api.messages[0]?.text).toContain('POST_FOOTER');
+    expect(harness.api.messages[0]?.text).toContain('does not download the image');
     expect(harness.api.messages[0]?.text).toContain('daily limit is 8');
     expect(harness.api.messages[1]?.text).toContain('price: 1,499');
     expect(harness.api.channelMessages()).toHaveLength(0);

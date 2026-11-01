@@ -6,4 +6,7 @@ export type DealDraft = {
   oldPrice?: number;
   verified: boolean;
   highlights: string[];
+  offer?: string;
+  shortUrl?: string;
+  linkPreview?: boolean;
 };

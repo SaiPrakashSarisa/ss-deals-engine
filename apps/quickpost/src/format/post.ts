@@ -8,7 +8,8 @@ export const FORBIDDEN_PHRASES = [
   'limited time',
 ] as const;
 
-const TITLE_EMOJI = '🛍️';
+export type LinkStyle = 'text' | 'button' | 'both';
+
 const inr = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });
 
 export type FormatInput = {
@@ -17,44 +18,38 @@ export type FormatInput = {
   oldPrice?: number;
   verified: boolean;
   highlights: string[];
-  taggedUrl: string;
+  offer?: string;
+  linkUrl: string;
+  linkStyle: LinkStyle;
+  footer?: string;
 };
 
 export type FormatResult =
   | {
       ok: true;
       html: string;
-      urlButton: { text: string; url: string };
+      urlButton?: { text: string; url: string };
       warnings: string[];
     }
   | { ok: false; message: string };
 
 export function formatPost(input: FormatInput): FormatResult {
-  const sections = [
-    `<b>${TITLE_EMOJI} ${escapeHtml(input.title)}</b>`,
-    `<b>₹${formatRupees(input.price)} when posted (may change)</b>`,
-  ];
+  const blocks = [`🔥 <b>${escapeHtml(input.title)}</b>`, priceBlock(input)];
 
-  if (input.oldPrice !== undefined && input.verified) {
-    const percent = discountPercent(input.price, input.oldPrice);
-    sections.push(`<s>₹${formatRupees(input.oldPrice)}</s> ${percent}% lower`);
-  } else if (input.oldPrice !== undefined) {
-    sections.push(`Listed at ₹${formatRupees(input.oldPrice)}`);
+  const highlights = input.highlights.slice(0, 3).map((highlight) => `✨ ${escapeHtml(highlight)}`);
+  if (highlights.length > 0) {
+    blocks.push(highlights.join('\n'));
   }
 
-  const bullets = input.highlights.slice(0, 3).map((highlight) => `• ${escapeHtml(highlight)}`);
-  if (bullets.length > 0) {
-    sections.push(bullets.join('\n'));
+  if (input.linkStyle !== 'button') {
+    blocks.push(`🛒 Buy Here : ${escapeHtml(input.linkUrl)}`);
   }
 
-  sections.push(
-    [
-      '<i>Affiliate link: I may earn a commission at no extra cost to you.</i>',
-      '<i>As an Amazon Associate I earn from qualifying purchases.</i>',
-    ].join('\n'),
-  );
+  if (input.footer !== undefined && input.footer.length > 0) {
+    blocks.push(`<i>${escapeHtml(input.footer)}</i>`);
+  }
 
-  const html = sections.join('\n\n');
+  const html = blocks.join('\n\n');
   if (html.length >= MAX_CAPTION_LENGTH) {
     return {
       ok: false,
@@ -62,12 +57,34 @@ export function formatPost(input: FormatInput): FormatResult {
     };
   }
 
+  const warnings = collectWarnings(input);
+  if (input.linkStyle === 'text') {
+    return { ok: true, html, warnings };
+  }
   return {
     ok: true,
     html,
-    urlButton: { text: AMAZON_BUTTON_LABEL, url: input.taggedUrl },
-    warnings: collectWarnings(input),
+    urlButton: { text: AMAZON_BUTTON_LABEL, url: input.linkUrl },
+    warnings,
   };
+}
+
+function priceBlock(input: FormatInput): string {
+  const lines: string[] = [];
+  let priceLine = `🎁 <b>Deal Price : ₹${formatRupees(input.price)}</b>`;
+  if (input.oldPrice !== undefined && input.verified) {
+    priceLine += `  <s>₹${formatRupees(input.oldPrice)}</s>`;
+    lines.push(priceLine, `🟢 <b>${discountPercent(input.price, input.oldPrice)}% off</b>`);
+  } else {
+    lines.push(priceLine);
+    if (input.oldPrice !== undefined) {
+      lines.push(`Listed at ₹${formatRupees(input.oldPrice)}`);
+    }
+  }
+  if (input.offer !== undefined && input.offer.length > 0) {
+    lines.push(`💳 Offer: ${escapeHtml(input.offer)}`);
+  }
+  return lines.join('\n');
 }
 
 export function formatRupees(amount: number): string {

@@ -1,12 +1,24 @@
 import { parseAmazonProductUrl } from '../amazon/url.js';
+import { DEFAULT_SHORT_LINK_HOSTS } from '../config/env.js';
 import type { DealDraft } from '../deal.js';
 
 export type ParseResult = { ok: true; draft: DealDraft } | { ok: false; errors: string[] };
 
-const FIELD_PATTERN = /^(title|price|old|verified)\s*:\s*(.*)$/i;
+export type ParseOptions = {
+  shortLinkHosts?: readonly string[];
+};
 
-export function parseDealMessage(text: string, tag: string): ParseResult {
+const FIELD_PATTERN = /^(title|price|old|verified|offer|short|preview)\s*:\s*(.*)$/i;
+const FIELD_LINE = /^(title|price|old|verified|offer|short|preview)\s*:/i;
+const MAX_OFFER_LENGTH = 120;
+
+export function parseDealMessage(
+  text: string,
+  tag: string,
+  options: ParseOptions = {},
+): ParseResult {
   const errors: string[] = [];
+  const hosts = options.shortLinkHosts ?? DEFAULT_SHORT_LINK_HOSTS;
   const link = readProductLink(text, tag);
   const fields = readFields(text);
 
@@ -19,6 +31,9 @@ export function parseDealMessage(text: string, tag: string): ParseResult {
   const price = readPrice(fields.priceRaw, errors);
   const oldPrice = readOldPrice(fields.oldRaw, price, errors);
   const verified = readVerified(fields.verifiedRaw, errors);
+  const offer = readOffer(fields.offerRaw, errors);
+  const shortUrl = readShort(fields.shortRaw, hosts, errors);
+  const linkPreview = readPreview(fields.previewRaw, errors);
 
   if (errors.length > 0 || link.kind !== 'ok' || price === undefined) {
     return { ok: false, errors };
@@ -34,6 +49,15 @@ export function parseDealMessage(text: string, tag: string): ParseResult {
   };
   if (oldPrice !== undefined) {
     draft.oldPrice = oldPrice;
+  }
+  if (offer !== undefined) {
+    draft.offer = offer;
+  }
+  if (shortUrl !== undefined) {
+    draft.shortUrl = shortUrl;
+  }
+  if (linkPreview === false) {
+    draft.linkPreview = false;
   }
   return { ok: true, draft };
 }
@@ -63,11 +87,15 @@ export function firstHttpUrl(text: string): string | undefined {
   return raw.replace(/[),.;\]]+$/u, '');
 }
 
+export function shortLinkError(hosts: readonly string[]): string {
+  return `The short: line must be an https link on an allowed host (${hosts.join(', ')}).`;
+}
+
 function readProductLink(
   text: string,
   tag: string,
 ): { kind: 'ok'; asin: string; url: string } | { kind: 'error'; message: string } {
-  const rawUrl = firstHttpUrl(text);
+  const rawUrl = firstHttpUrl(textWithoutFieldLines(text));
   if (rawUrl === undefined) {
     return { kind: 'error', message: 'Paste the full amazon.in product link.' };
   }
@@ -78,17 +106,30 @@ function readProductLink(
   return { kind: 'ok', asin: parsed.asin, url: parsed.url };
 }
 
+function textWithoutFieldLines(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => !FIELD_LINE.test(line.trim()))
+    .join('\n');
+}
+
 function readFields(text: string): {
   title?: string;
   priceRaw?: string;
   oldRaw?: string;
   verifiedRaw?: string;
+  offerRaw?: string;
+  shortRaw?: string;
+  previewRaw?: string;
   highlights: string[];
 } {
   let title: string | undefined;
   let priceRaw: string | undefined;
   let oldRaw: string | undefined;
   let verifiedRaw: string | undefined;
+  let offerRaw: string | undefined;
+  let shortRaw: string | undefined;
+  let previewRaw: string | undefined;
   const highlights: string[] = [];
 
   for (const line of text.split(/\r?\n/)) {
@@ -115,10 +156,16 @@ function readFields(text: string): {
       oldRaw = value;
     } else if (key === 'verified') {
       verifiedRaw = value;
+    } else if (key === 'offer') {
+      offerRaw = value;
+    } else if (key === 'short') {
+      shortRaw = value;
+    } else if (key === 'preview') {
+      previewRaw = value;
     }
   }
 
-  return { title, priceRaw, oldRaw, verifiedRaw, highlights };
+  return { title, priceRaw, oldRaw, verifiedRaw, offerRaw, shortRaw, previewRaw, highlights };
 }
 
 function readPrice(priceRaw: string | undefined, errors: string[]): number | undefined {
@@ -166,4 +213,54 @@ function readVerified(verifiedRaw: string | undefined, errors: string[]): boolea
   }
   errors.push('Verified must be yes or no.');
   return false;
+}
+
+function readOffer(offerRaw: string | undefined, errors: string[]): string | undefined {
+  if (offerRaw === undefined || offerRaw.length === 0) {
+    return undefined;
+  }
+  if (offerRaw.length > MAX_OFFER_LENGTH) {
+    errors.push('Offer must be 120 characters or fewer.');
+    return undefined;
+  }
+  return offerRaw;
+}
+
+function readShort(
+  shortRaw: string | undefined,
+  hosts: readonly string[],
+  errors: string[],
+): string | undefined {
+  if (shortRaw === undefined) {
+    return undefined;
+  }
+  const message = shortLinkError(hosts);
+  let parsed: URL;
+  try {
+    parsed = new URL(shortRaw);
+  } catch {
+    errors.push(message);
+    return undefined;
+  }
+  const allowed = new Set(hosts.map((host) => host.toLowerCase()));
+  if (parsed.protocol !== 'https:' || !allowed.has(parsed.hostname)) {
+    errors.push(message);
+    return undefined;
+  }
+  return shortRaw;
+}
+
+function readPreview(previewRaw: string | undefined, errors: string[]): boolean {
+  if (previewRaw === undefined) {
+    return true;
+  }
+  const value = previewRaw.toLowerCase();
+  if (value === 'on') {
+    return true;
+  }
+  if (value === 'off') {
+    return false;
+  }
+  errors.push('Preview must be on or off.');
+  return true;
 }

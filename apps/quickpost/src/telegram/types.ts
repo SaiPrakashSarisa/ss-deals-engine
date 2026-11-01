@@ -2,12 +2,22 @@ export type CallbackButton = { kind: 'callback'; text: string; data: string };
 export type UrlButton = { kind: 'url'; text: string; url: string };
 export type Keyboard = Array<Array<CallbackButton | UrlButton>>;
 
+export type LinkPreviewSetting = { url: string } | { disabled: true };
+
 export type SendRequest = {
   chatId: number | string;
   text: string;
   parseMode?: 'HTML';
   keyboard?: Keyboard;
-  linkPreview?: { url: string };
+  linkPreview?: LinkPreviewSetting;
+};
+
+export type PhotoSendRequest = {
+  chatId: number | string;
+  photo: string;
+  caption: string;
+  parseMode?: 'HTML';
+  keyboard?: Keyboard;
 };
 
 export type SendOutcome =
@@ -18,5 +28,6 @@ export type SendOutcome =
 
 export interface TelegramApi {
   sendMessage(request: SendRequest): Promise<SendOutcome>;
+  sendPhoto(request: PhotoSendRequest): Promise<SendOutcome>;
   answerCallback(callbackId: string): Promise<void>;
 }

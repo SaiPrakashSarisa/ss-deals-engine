@@ -8,6 +8,8 @@ const entrySchema = z
     asin: z.string().regex(/^[A-Z0-9]{10}$/),
     timestamp: z.string().refine((value) => Number.isFinite(Date.parse(value))),
     message_id: z.union([z.number().int().positive(), z.literal('uncertain')]),
+    mode: z.enum(['text', 'photo']).optional(),
+    link: z.enum(['tagged', 'short']).optional(),
   })
   .strict();
 

@@ -24,6 +24,9 @@ describe('loadConfig', () => {
       DAILY_POST_LIMIT: 8,
       DATA_DIR: './data',
       TZ: 'Asia/Kolkata',
+      SHORT_LINK_HOSTS: ['amzn.to', 'link.amazon'],
+      LINK_STYLE: 'text',
+      POST_FOOTER: '',
     });
   });
 
@@ -37,6 +40,9 @@ describe('loadConfig', () => {
           DAILY_POST_LIMIT: '3',
           DATA_DIR: '/var/quickpost',
           TZ: 'UTC',
+          SHORT_LINK_HOSTS: 'amzn.to, link.amazon',
+          LINK_STYLE: 'both',
+          POST_FOOTER: '  Prices can change.  ',
         }),
       ),
     ).toMatchObject({
@@ -46,7 +52,30 @@ describe('loadConfig', () => {
       DAILY_POST_LIMIT: 3,
       DATA_DIR: '/var/quickpost',
       TZ: 'UTC',
+      SHORT_LINK_HOSTS: ['amzn.to', 'link.amazon'],
+      LINK_STYLE: 'both',
+      POST_FOOTER: 'Prices can change.',
     });
+  });
+
+  it('accepts a 120-character footer and rejects a longer one', () => {
+    expect(loadConfig(validEnv({ POST_FOOTER: 'x'.repeat(120) })).POST_FOOTER).toBe(
+      'x'.repeat(120),
+    );
+    expect(loadConfig(validEnv({ POST_FOOTER: '   ' })).POST_FOOTER).toBe('');
+    expect(() => loadConfig(validEnv({ POST_FOOTER: 'x'.repeat(121) }))).toThrow(
+      /POST_FOOTER must be 120 characters or fewer/,
+    );
+  });
+
+  it('rejects an unknown link style or a bad short-link host', () => {
+    expect(() => loadConfig(validEnv({ LINK_STYLE: 'card' }))).toThrow(
+      /LINK_STYLE must be text, button, or both/,
+    );
+    expect(() => loadConfig(validEnv({ SHORT_LINK_HOSTS: 'https://amzn.to' }))).toThrow(
+      /SHORT_LINK_HOSTS/,
+    );
+    expect(loadConfig(validEnv({ LINK_STYLE: ' button ' })).LINK_STYLE).toBe('button');
   });
 
   it('fails fast without putting the token in the error', () => {

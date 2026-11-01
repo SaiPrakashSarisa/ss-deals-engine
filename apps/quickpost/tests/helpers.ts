@@ -5,7 +5,12 @@ import { pino } from 'pino';
 import { createQuickPost, type QuickPost } from '../src/bot/app.js';
 import type { AppConfig } from '../src/config/env.js';
 import { PostedLog } from '../src/store/posted.js';
-import type { SendOutcome, SendRequest, TelegramApi } from '../src/telegram/types.js';
+import type {
+  PhotoSendRequest,
+  SendOutcome,
+  SendRequest,
+  TelegramApi,
+} from '../src/telegram/types.js';
 
 export const OWNER_ID = 424242;
 export const OTHER_ID = 7;
@@ -34,17 +39,44 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     DAILY_POST_LIMIT: 8,
     DATA_DIR: './data',
     TZ: 'Asia/Kolkata',
+    SHORT_LINK_HOSTS: ['amzn.to', 'link.amazon'],
+    LINK_STYLE: 'text',
+    POST_FOOTER: '',
     ...overrides,
   };
 }
 
+export type RecordedMessage = SendRequest & { photo?: string };
+
 export class FakeTelegram implements TelegramApi {
-  readonly messages: SendRequest[] = [];
+  readonly messages: RecordedMessage[] = [];
   readonly answered: string[] = [];
   channelResults: SendOutcome[] = [];
   channelDelayMs = 0;
 
   async sendMessage(request: SendRequest): Promise<SendOutcome> {
+    return this.record(request);
+  }
+
+  async sendPhoto(request: PhotoSendRequest): Promise<SendOutcome> {
+    return this.record({
+      chatId: request.chatId,
+      text: request.caption,
+      parseMode: request.parseMode,
+      keyboard: request.keyboard,
+      photo: request.photo,
+    });
+  }
+
+  async answerCallback(callbackId: string): Promise<void> {
+    this.answered.push(callbackId);
+  }
+
+  channelMessages(): RecordedMessage[] {
+    return this.messages.filter((message) => message.chatId === CHANNEL);
+  }
+
+  private async record(request: RecordedMessage): Promise<SendOutcome> {
     if (request.chatId === CHANNEL && this.channelDelayMs > 0) {
       await new Promise((resolve) => {
         setTimeout(resolve, this.channelDelayMs);
@@ -59,14 +91,6 @@ export class FakeTelegram implements TelegramApi {
     }
     return { ok: true, messageId: this.messages.length };
   }
-
-  async answerCallback(callbackId: string): Promise<void> {
-    this.answered.push(callbackId);
-  }
-
-  channelMessages(): SendRequest[] {
-    return this.messages.filter((message) => message.chatId === CHANNEL);
-  }
 }
 
 export type Harness = {
@@ -79,13 +103,27 @@ export type Harness = {
   advance: (ms: number) => void;
 };
 
-export async function createHarness(options?: { now?: number; limit?: number }): Promise<Harness> {
+export async function createHarness(options?: {
+  now?: number;
+  limit?: number;
+  linkStyle?: AppConfig['LINK_STYLE'];
+  shortLinkHosts?: string[];
+  postFooter?: string;
+}): Promise<Harness> {
   const dir = await mkdtemp(join(tmpdir(), 'quickpost-'));
   let now = options?.now ?? Date.parse('2026-10-31T10:00:00.000Z');
   const api = new FakeTelegram();
   const log = new PostedLog(join(dir, 'posted.json'));
   const app = createQuickPost({
-    config: testConfig({ DAILY_POST_LIMIT: options?.limit ?? 8, DATA_DIR: dir }),
+    config: testConfig({
+      DAILY_POST_LIMIT: options?.limit ?? 8,
+      DATA_DIR: dir,
+      LINK_STYLE: options?.linkStyle ?? 'text',
+      POST_FOOTER: options?.postFooter ?? '',
+      ...(options?.shortLinkHosts === undefined
+        ? {}
+        : { SHORT_LINK_HOSTS: options.shortLinkHosts }),
+    }),
     api,
     log,
     clock: () => now,
@@ -106,8 +144,17 @@ export async function createHarness(options?: { now?: number; limit?: number }):
   };
 }
 
-export async function sendDeal(harness: Harness, text = DEAL): Promise<SendRequest> {
-  await harness.app.onMessage({ chatId: 500, userId: OWNER_ID, text });
+export async function sendDeal(
+  harness: Harness,
+  text = DEAL,
+  photoFileId?: string,
+): Promise<RecordedMessage> {
+  await harness.app.onMessage({
+    chatId: 500,
+    userId: OWNER_ID,
+    text,
+    ...(photoFileId === undefined ? {} : { photoFileId }),
+  });
   const preview = [...harness.api.messages]
     .reverse()
     .find((message) => message.parseMode === 'HTML');
@@ -117,7 +164,7 @@ export async function sendDeal(harness: Harness, text = DEAL): Promise<SendReque
   return preview;
 }
 
-export function callbackData(message: SendRequest, label: string): string {
+export function callbackData(message: RecordedMessage, label: string): string {
   for (const row of message.keyboard ?? []) {
     for (const button of row) {
       if (button.kind === 'callback' && button.text === label) {

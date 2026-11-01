@@ -75,6 +75,9 @@ describe('telegram adapter', () => {
           }
           return { message_id: 15 };
         },
+        async sendPhoto() {
+          throw new Error('sendPhoto was not expected');
+        },
         async answerCallbackQuery() {
           return true;
         },
@@ -129,6 +132,9 @@ describe('telegram adapter', () => {
           calls += 1;
           throw new HttpError('timeout', new Error('The operation was aborted'));
         },
+        async sendPhoto() {
+          throw new Error('sendPhoto was not expected');
+        },
         async answerCallbackQuery() {
           return true;
         },
@@ -142,6 +148,75 @@ describe('telegram adapter', () => {
     const outcome = await api.sendMessage({ chatId: 1, text: 'hello' });
     expect(outcome).toEqual({ ok: false, reason: 'uncertain' });
     expect(calls).toBe(1);
+  });
+
+  it('disables the link preview without fetching the URL', async () => {
+    const calls: TelegramSendExtra[] = [];
+    const api = createGrammyApi(
+      {
+        async sendMessage(_chatId, _text, extra) {
+          calls.push(extra ?? {});
+          return { message_id: 4 };
+        },
+        async sendPhoto() {
+          throw new Error('sendPhoto was not expected');
+        },
+        async answerCallbackQuery() {
+          return true;
+        },
+      },
+      async () => undefined,
+      logger,
+    );
+
+    const outcome = await api.sendMessage({
+      chatId: 1,
+      text: 'https://amzn.to/abc',
+      linkPreview: { disabled: true },
+    });
+
+    expect(outcome).toEqual({ ok: true, messageId: 4 });
+    expect(calls[0]?.link_preview_options).toEqual({ is_disabled: true });
+  });
+
+  it('sends a photo by file id with an HTML caption', async () => {
+    let photo = '';
+    let caption = '';
+    let parseMode: string | undefined;
+    const api = createGrammyApi(
+      {
+        async sendMessage() {
+          throw new Error('sendMessage was not expected');
+        },
+        async sendPhoto(_chatId, fileId, extra) {
+          photo = fileId;
+          caption = extra?.caption ?? '';
+          parseMode = extra?.parse_mode;
+          return { message_id: 9 };
+        },
+        async answerCallbackQuery() {
+          return true;
+        },
+      },
+      async () => {
+        throw new Error('should not sleep');
+      },
+      logger,
+    );
+
+    const outcome = await api.sendPhoto({
+      chatId: '@ss_super_deals',
+      photo: 'AgACAgQAAxkBTEST',
+      caption: '<b>Deal</b>',
+      parseMode: 'HTML',
+      keyboard: [[{ kind: 'url', text: '🛒 Check deal on Amazon', url: 'https://amzn.to/abc' }]],
+    });
+
+    expect(outcome).toEqual({ ok: true, messageId: 9 });
+    expect(photo).toBe('AgACAgQAAxkBTEST');
+    expect(caption).toBe('<b>Deal</b>');
+    expect(parseMode).toBe('HTML');
+    expect(photo.startsWith('http')).toBe(false);
   });
 
   it('classifies server errors as uncertain and client errors as rejected', () => {
