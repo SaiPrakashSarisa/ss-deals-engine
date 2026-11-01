@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "pnpm --filter @ss-deals/server dev",
     "dev:worker": "pnpm --filter @ss-deals/server dev:worker",
+    "dev:web": "pnpm --filter @ss-deals/web dev",
     "build": "pnpm --filter @ss-deals/server build",
     "start": "pnpm --filter @ss-deals/server start",
     "start:worker": "pnpm --filter @ss-deals/server start:worker",

@@ -17,5 +17,6 @@ export {
   publicationStatusEnum,
   publications,
 } from './publications.js';
+export { sessions } from './sessions.js';
 export { settings } from './settings.js';
 export { userRoleEnum, users } from './users.js';

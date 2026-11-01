@@ -22,6 +22,20 @@
       "when": 1793509161851,
       "tag": "0002_integrity_followups",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793512693337,
+      "tag": "0003_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793517681779,
+      "tag": "0004_display_name",
+      "breakpoints": true
     }
   ]
 }

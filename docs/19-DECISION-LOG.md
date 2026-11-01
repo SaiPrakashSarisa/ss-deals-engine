@@ -81,3 +81,21 @@ Amazon URL handling, rupee parsing, Indian grouping, forbidden-word checks, and 
 ### updated_at is maintained by a trigger
 
 `set_updated_at()` runs `BEFORE UPDATE` on `users`, `deals`, `publications`, and `settings`, and assigns `updated_at = now()`. Drizzle Kit does not emit triggers, so that SQL is in migration `0002` with the composite keys. The application does not have to remember the column.
+
+## 2026-11-01 — Web sign-in
+
+### Two roles, one cookie session
+
+The desk has an owner and a clerk. Passwords use Node's built-in scrypt. Sessions live in Postgres. The cookie carries a random token and the database stores only its SHA-256 hash. Idle time is 12 hours and the session cannot last more than 7 days. The web app is a separate Next.js process on port 3001 and proxies auth calls so the browser has one origin and cannot read the `HttpOnly` cookie.
+
+### The owner can open the clerk pages
+
+`requireRole` on the API is exact: an owner token does not pass a clerk-only guard. The web pages are different. `/admin` is limited to the admin role and returns 403 for anyone else. Deal pages are open to both people. The nav hides Review queue from anyone who is not an admin.
+
+### People are shown by name
+
+`users.display_name` is an optional name of at most 60 characters. The profile returns it, and falls back to the username. The screen says Admin for that role and shows no role word for anyone else. `/owner` and `/clerk` redirect to `/admin` and `/deals`. Changing a password from the Account page checks the current password, requires a different password of at least 12 characters, and revokes every other session.
+
+### Test guard routes stay out of production
+
+`GET /api/auth/test/*` is registered only when `NODE_ENV` is not `production`, so the role guards can be exercised without shipping them in the production process.

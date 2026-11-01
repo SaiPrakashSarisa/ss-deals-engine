@@ -2,6 +2,7 @@ import { loadConfig } from '../config/env.js';
 import { isEntrypoint } from '../lib/entrypoint.js';
 import { checkDb, createDb } from '../lib/db.js';
 import { createLogger, flushLogger, startupSummary } from '../lib/logger.js';
+import { testRoutesEnabled } from '../modules/auth/routes.js';
 import { installSignalHandlers, createShutdownHandler } from '../shutdown.js';
 import { buildApp } from './app.js';
 
@@ -10,10 +11,17 @@ export async function startApi(): Promise<void> {
   const logger = createLogger(config);
   logger.info(startupSummary(config), 'api starting');
 
-  const { pool } = createDb(config.DATABASE_URL, logger);
+  const { pool, db } = createDb(config.DATABASE_URL, logger);
   const app = buildApp({
     logger,
     checkDb: () => checkDb(pool),
+    auth: {
+      db,
+      cookieName: config.SESSION_COOKIE_NAME,
+      cookieSecure: config.COOKIE_SECURE,
+      allowedOrigins: config.ALLOWED_ORIGIN,
+      enableTestRoutes: testRoutesEnabled(config.NODE_ENV),
+    },
   });
 
   const shutdown = createShutdownHandler({

@@ -83,6 +83,37 @@ services:
     stop_grace_period: 20s
     restart: unless-stopped
 
+  web:
+    image: ss-deals-web:local
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: ss-deals-web
+    environment:
+      NODE_ENV: production
+      API_URL: http://api:3000
+      PORT: 3001
+      HOSTNAME: 0.0.0.0
+    ports:
+      - '${WEB_BIND:-127.0.0.1}:3001:3001'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3001/login').then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 20s
+    restart: unless-stopped
+
   quickpost:
     profiles: ['quickpost']
     image: ss-deals-quickpost:local
