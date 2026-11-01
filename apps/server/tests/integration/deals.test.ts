@@ -615,7 +615,8 @@ describe.skipIf(databaseUrl === '')('deal http', () => {
       price: '1499',
       dealId: ownId,
     });
-    expect(editing.json().code).toBe('ok');
+    expect(editing.json().code).toBe('editing');
+    expect(editing.json().activeDeal).toBe(false);
     const other = await checkUrl(await login('linus'), {
       url: 'https://www.amazon.in/dp/B0TEST1234',
       dealId: ownId,
@@ -754,6 +755,82 @@ describe.skipIf(databaseUrl === '')('deal http', () => {
     const id = created.json().deals[0].id as string;
     expect((await upload(cookie, id, await png(1), 'a.png', 'image/png')).statusCode).toBe(200);
     expect((await upload(cookie, id, await png(2), 'b.png', 'image/png')).statusCode).toBe(429);
+  });
+
+  function withdrawDeal(cookie: string, id: string) {
+    return server().inject({
+      method: 'POST',
+      url: `/api/deals/${id}/withdraw`,
+      headers: { cookie, origin },
+    });
+  }
+
+  it('withdraws a deal that is waiting for review and lets the creator send it again', async () => {
+    const grace = await login('grace');
+    const created = await postDeal(grace, dealBody());
+    const id = created.json().deal.id as string;
+    expect(created.json().deal.editable).toBe(true);
+    expect((await withdrawDeal(grace, id)).statusCode).toBe(409);
+
+    const submitted = await submitDeal(grace, id);
+    expect(submitted.statusCode).toBe(200);
+    expect(submitted.json().deal.editable).toBe(false);
+    const linus = await login('linus');
+    expect((await withdrawDeal(linus, id)).statusCode).toBe(404);
+    expect((await patchDeal(linus, id, dealBody({ title: 'Stolen' }))).statusCode).toBe(404);
+    const ada = await login('ada');
+    expect((await withdrawDeal(ada, id)).statusCode).toBe(403);
+    expect((await patchDeal(ada, id, dealBody({ title: 'Stolen' }))).statusCode).toBe(403);
+
+    const withdrawn = await withdrawDeal(grace, id);
+    expect(withdrawn.statusCode).toBe(200);
+    expect(withdrawn.json().deal.status).toBe('draft');
+    expect(withdrawn.json().deal.editable).toBe(true);
+    const actions = (await database().select().from(auditLog)).map((row) => row.action);
+    expect(actions).toContain('deal.withdraw');
+
+    const edited = await patchDeal(grace, id, dealBody({ title: 'Blue kettle revised' }));
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().deal.title).toBe('Blue kettle revised');
+    const again = await submitDeal(grace, id);
+    expect(again.statusCode).toBe(200);
+    expect(again.json().deal.status).toBe('pending_approval');
+    expect((await withdrawDeal(grace, id)).statusCode).toBe(200);
+    await database().update(deals).set({ status: 'approved' }).where(eq(deals.id, id));
+    expect((await withdrawDeal(grace, id)).statusCode).toBe(409);
+    expect((await withdrawDeal(grace, id)).json().error).toBe('This deal was already reviewed.');
+  });
+
+  it("still applies the repost rule when editing the creator's own deal", async () => {
+    await seedPublished('B0TEST1234', 200_000, adaId);
+    const grace = await login('grace');
+    const created = await postDeal(grace, dealBody({ price: '1499', oldPrice: '' }));
+    expect(created.statusCode).toBe(201);
+    const id = created.json().deal.id as string;
+    const lower = await checkUrl(grace, {
+      url: 'https://www.amazon.in/dp/B0TEST1234',
+      price: '1499',
+      dealId: id,
+    });
+    expect(lower.json().code).toBe('posted_lower');
+    const blocked = await checkUrl(grace, {
+      url: 'https://www.amazon.in/dp/B0TEST1234',
+      price: '2000',
+      dealId: id,
+    });
+    expect(blocked.json().code).toBe('posted_blocked');
+    const other = await checkUrl(await login('linus'), {
+      url: 'https://www.amazon.in/dp/B0TEST1234',
+      price: '1000',
+      dealId: id,
+    });
+    expect(other.json().code).toBe('in_queue');
+    expect((await patchDeal(grace, id, dealBody({ price: '2000', oldPrice: '' }))).statusCode).toBe(
+      409,
+    );
+    expect((await patchDeal(grace, id, dealBody({ price: '1499', oldPrice: '' }))).statusCode).toBe(
+      200,
+    );
   });
 
   function upload(cookie: string, id: string, file: Buffer, filename: string, type: string) {

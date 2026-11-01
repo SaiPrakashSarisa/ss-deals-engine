@@ -14,6 +14,7 @@ import { classifyUrlCheck, type UrlCheck } from './check.js';
 import { DealHttpError } from './errors.js';
 import {
   ACTIVE_DEAL_MESSAGE,
+  ALREADY_REVIEWED,
   IMAGE_NONE_ERROR,
   NOT_EDITABLE,
   NOT_FOUND,
@@ -103,6 +104,7 @@ export type DealJson = {
   reviewNote: string | null;
   rejectedReason: string | null;
   hasImage: boolean;
+  editable: boolean;
   submittedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -112,6 +114,10 @@ function canRead(user: AuthUser, createdBy: string): boolean {
   return user.role === 'owner' || user.id === createdBy;
 }
 
+function isActiveDealStatus(status: DealStatus): boolean {
+  return (ACTIVE_DEAL_STATUSES as readonly DealStatus[]).includes(status);
+}
+
 function highlightsOf(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -119,7 +125,7 @@ function highlightsOf(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === 'string');
 }
 
-function toJson(row: DealRow): DealJson {
+function toJson(row: DealRow, user: AuthUser): DealJson {
   return {
     id: row.id,
     status: row.status,
@@ -137,6 +143,7 @@ function toJson(row: DealRow): DealJson {
     reviewNote: row.reviewNote,
     rejectedReason: row.rejectedReason,
     hasImage: row.imagePath !== null && row.imageMime !== null,
+    editable: row.createdBy === user.id && row.status === 'draft',
     submittedAt: row.submittedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -380,14 +387,27 @@ export async function checkProductUrl(
 
   const product = await findProduct(db, parsed.asin);
   let exceptDealId: string | undefined;
+  let editingOwnActive = false;
   if (input.dealId !== null) {
     const [own] = await db
-      .select({ id: deals.id, createdBy: deals.createdBy })
+      .select({
+        id: deals.id,
+        createdBy: deals.createdBy,
+        productId: deals.productId,
+        status: deals.status,
+      })
       .from(deals)
       .where(eq(deals.id, input.dealId))
       .limit(1);
-    if (own !== undefined && own.createdBy === user.id) {
+    if (
+      own !== undefined &&
+      own.createdBy === user.id &&
+      product !== undefined &&
+      own.productId === product.id &&
+      isActiveDealStatus(own.status)
+    ) {
       exceptDealId = own.id;
+      editingOwnActive = true;
     }
   }
   const activeDeal =
@@ -398,6 +418,7 @@ export async function checkProductUrl(
     activeDeal,
     previous,
     newPricePaise: input.pricePaise,
+    editingOwnActive,
   });
   return {
     ok: true,
@@ -446,7 +467,7 @@ export async function createDraft(
       if (row === undefined) {
         throw new Error('deal disappeared after insert');
       }
-      return toJson(row);
+      return toJson(row, user);
     }),
   );
 }
@@ -498,7 +519,7 @@ export async function updateDraft(
       if (row === undefined) {
         throw new Error('deal disappeared after update');
       }
-      return toJson(row);
+      return toJson(row, user);
     }),
   );
 }
@@ -558,9 +579,42 @@ export async function submitDraft(
       if (row === undefined) {
         throw new Error('deal disappeared after submit');
       }
-      return toJson(row);
+      return toJson(row, user);
     }),
   );
+}
+
+export async function withdrawDeal(db: DealDb, user: AuthUser, id: string): Promise<DealJson> {
+  return transaction(db, async (tx) => {
+    const current = await requireReadable(tx, user, id);
+    if (current.createdBy !== user.id) {
+      throw new DealHttpError(403, OWN_DRAFT_ONLY);
+    }
+    if (current.status !== 'pending_approval') {
+      throw new DealHttpError(409, ALREADY_REVIEWED);
+    }
+    assertTransition(current.status, 'draft');
+    const updated = await tx
+      .update(deals)
+      .set({ status: 'draft' })
+      .where(and(eq(deals.id, id), eq(deals.status, 'pending_approval')))
+      .returning({ id: deals.id });
+    if (updated.length === 0) {
+      throw new DealHttpError(409, ALREADY_REVIEWED);
+    }
+    await tx.insert(auditLog).values({
+      actorUserId: user.id,
+      action: 'deal.withdraw',
+      entityType: 'deal',
+      entityId: id,
+      details: { from: 'pending_approval', to: 'draft' },
+    });
+    const row = await loadDeal(tx, id);
+    if (row === undefined) {
+      throw new Error('deal disappeared after withdraw');
+    }
+    return toJson(row, user);
+  });
 }
 
 export async function listDeals(
@@ -579,11 +633,11 @@ export async function listDeals(
     .innerJoin(affiliateLinks, eq(affiliateLinks.id, deals.linkId))
     .where(where)
     .orderBy(desc(deals.updatedAt), desc(deals.createdAt));
-  return rows.map((row) => toJson(row));
+  return rows.map((row) => toJson(row, user));
 }
 
 export async function getDeal(db: DealDb, user: AuthUser, id: string): Promise<DealJson> {
-  return toJson(await requireReadable(db, user, id));
+  return toJson(await requireReadable(db, user, id), user);
 }
 
 export async function setDealImage(
@@ -613,7 +667,7 @@ export async function setDealImage(
     if (row === undefined) {
       throw new Error('deal disappeared after image upload');
     }
-    return { deal: toJson(row), previousFilename: current.imagePath };
+    return { deal: toJson(row, user), previousFilename: current.imagePath };
   });
 }
 

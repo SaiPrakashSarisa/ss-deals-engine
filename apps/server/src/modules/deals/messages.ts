@@ -2,6 +2,7 @@ export const FIELD_SUMMARY = 'Check the highlighted fields.';
 export const ACTIVE_DEAL_MESSAGE = 'This product is already in the queue.';
 export const NOT_FOUND = 'That deal was not found.';
 export const NOT_EDITABLE = 'This deal can no longer be changed.';
+export const ALREADY_REVIEWED = 'This deal was already reviewed.';
 export const OWN_DRAFT_ONLY = 'You can only change your own draft.';
 export const ONLY_DRAFT = 'Only a draft can be sent for review.';
 export const DRAFT_RATE_LIMIT_ERROR =

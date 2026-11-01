@@ -2,6 +2,46 @@ import { describe, expect, it } from 'vitest';
 import { classifyUrlCheck, urlCheckBlocksSave } from '../../src/modules/deals/check.js';
 
 describe('classifyUrlCheck', () => {
+  it("uses a neutral editing state for the person's own active deal", () => {
+    expect(
+      classifyUrlCheck({
+        urlOk: true,
+        activeDeal: false,
+        previous: null,
+        newPricePaise: 149_900,
+        editingOwnActive: true,
+      }),
+    ).toEqual({ code: 'editing', repost: { allowed: true, reason: 'first_post' } });
+    expect(urlCheckBlocksSave('editing')).toBe(false);
+    expect(
+      classifyUrlCheck({
+        urlOk: true,
+        activeDeal: true,
+        previous: null,
+        newPricePaise: 149_900,
+        editingOwnActive: true,
+      }).code,
+    ).toBe('in_queue');
+    expect(
+      classifyUrlCheck({
+        urlOk: true,
+        activeDeal: false,
+        previous: { postedPricePaise: 200_000 },
+        newPricePaise: 149_900,
+        editingOwnActive: true,
+      }).code,
+    ).toBe('posted_lower');
+    expect(
+      classifyUrlCheck({
+        urlOk: true,
+        activeDeal: false,
+        previous: { postedPricePaise: 200_000 },
+        newPricePaise: 200_000,
+        editingOwnActive: true,
+      }).code,
+    ).toBe('posted_blocked');
+  });
+
   it('allows a first post', () => {
     expect(
       classifyUrlCheck({

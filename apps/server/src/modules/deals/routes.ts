@@ -29,6 +29,7 @@ import {
   setDealImage,
   submitDraft,
   updateDraft,
+  withdrawDeal,
 } from './service.js';
 import type { DealStatus } from './status.js';
 import { SIGN_IN_REQUIRED } from '../auth/messages.js';
@@ -185,6 +186,20 @@ export function registerDealRoutes(app: FastifyInstance, deps: DealRouteDeps): v
     }
     return handle(reply, async () => ({
       deal: await updateDraft(deps.db, user, id, parsed.value, deps.amazonTag),
+    }));
+  });
+
+  app.post('/api/deals/:id/withdraw', { preHandler: guard }, async (request, reply) => {
+    const user = request.authUser;
+    if (user === null) {
+      return reply.code(401).send({ error: SIGN_IN_REQUIRED });
+    }
+    const id = parseDealId(readParam(request.params, 'id'));
+    if (id === undefined) {
+      return reply.code(404).send({ error: 'That deal was not found.' });
+    }
+    return handle(reply, async () => ({
+      deal: await withdrawDeal(deps.db, user, id),
     }));
   });
 

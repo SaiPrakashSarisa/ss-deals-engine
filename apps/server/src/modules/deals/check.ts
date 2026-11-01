@@ -7,6 +7,7 @@ export const urlCheckCodes = [
   'posted_unknown_price',
   'posted_lower',
   'awaiting_price',
+  'editing',
   'ok',
 ] as const;
 
@@ -33,6 +34,7 @@ export function classifyUrlCheck(input: {
   activeDeal: boolean;
   previous: RepostPrevious | null;
   newPricePaise: number | null;
+  editingOwnActive?: boolean;
 }): { code: UrlCheckCode; repost: RepostDecision | null } {
   if (!input.urlOk) {
     return { code: 'invalid', repost: null };
@@ -51,7 +53,10 @@ export function classifyUrlCheck(input: {
     return { code: 'in_queue', repost };
   }
   if (input.previous === null) {
-    return { code: 'ok', repost: { allowed: true, reason: 'first_post' } };
+    return {
+      code: input.editingOwnActive === true ? 'editing' : 'ok',
+      repost: { allowed: true, reason: 'first_post' },
+    };
   }
   if (repost?.reason === 'previous_price_unknown') {
     return { code: 'posted_unknown_price', repost };
@@ -66,5 +71,5 @@ export function classifyUrlCheck(input: {
 }
 
 export function urlCheckBlocksSave(code: UrlCheckCode): boolean {
-  return code !== 'ok' && code !== 'posted_lower';
+  return code !== 'ok' && code !== 'posted_lower' && code !== 'editing';
 }
