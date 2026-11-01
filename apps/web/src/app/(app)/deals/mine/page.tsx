@@ -1,10 +1,11 @@
 import { DealList } from '../../../../components/deals/DealList';
-import { loadMyDeals } from '../../../../lib/deals';
+import { loadDealConfig, loadMyDeals } from '../../../../lib/deals';
 
 export const dynamic = 'force-dynamic';
 
 export default async function MyDealsPage() {
   const deals = await loadMyDeals();
+  const shortLinkHosts = deals === null ? null : await loadDealConfig();
 
   return (
     <section>
@@ -12,7 +13,7 @@ export default async function MyDealsPage() {
       {deals === null ? (
         <p className="text-xl">Your deals could not be loaded. Try again.</p>
       ) : (
-        <DealList deals={deals} />
+        <DealList deals={deals} shortLinkHosts={shortLinkHosts ?? undefined} />
       )}
     </section>
   );
