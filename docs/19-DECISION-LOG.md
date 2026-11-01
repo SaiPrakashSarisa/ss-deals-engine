@@ -66,6 +66,12 @@ A new deal for a product that was already published is allowed only when the new
 
 Business tables are Drizzle modules under `apps/server/src/db/schema`. `drizzle.config.ts` reads that folder's `index.ts`. `src/lib/schema.ts` re-exports it so the existing database client stays on the same import. `app_meta` is unchanged. `audit_log.actor_user_id` is not a foreign key, so an audit row can outlive the user it names.
 
+## 2026-11-01 — Shared core package
+
+### Pure deal helpers live in @ss-deals/core
+
+Amazon URL handling, rupee parsing, Indian grouping, forbidden-word checks, and the Telegram HTML caption formatter are pure functions. The quick-post bot and the later web app both need them, so they live in `packages/core` (`@ss-deals/core`). That package has no Telegram client, I/O, environment access, network, or database. The bot imports it. The formatter still takes whole rupees. `rupeesToPaise` and `paiseToRupees` convert whole rupees and whole paise, because the database stores integer paise and one rupee is 100 paise. The quick-post image builds this package so production Node can load the compiled ESM.
+
 ## 2026-11-01 — Integrity follow-ups
 
 ### A deal and its link share a product

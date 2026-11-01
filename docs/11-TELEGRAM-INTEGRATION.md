@@ -2,6 +2,8 @@
 
 `apps/quickpost` is an interim tool. The owner DMs a bot, checks a formatted preview, and confirms. The bot then posts to one Telegram channel. It does not use PostgreSQL, and it does not fetch or scrape Amazon pages.
 
+The amazon.in link toolkit, rupee parsing, Indian grouping, the forbidden-word check, and the caption formatter live in `@ss-deals/core` (`packages/core`). The bot imports that package. Caption rules below are unchanged. `formatPost` still takes whole rupees. `rupeesToPaise` and `paiseToRupees` convert those rupees for storage that uses integer paise. The bot does not call them.
+
 ## Configure
 
 Copy the quick-post variables from `.env.example` into `.env`. `.env` is gitignored. Do not commit the bot token.
