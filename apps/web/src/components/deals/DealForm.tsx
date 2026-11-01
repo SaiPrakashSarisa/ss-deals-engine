@@ -1,6 +1,6 @@
 'use client';
 
-import { formatPost, parsePriceInput, validateShortLink } from '@ss-deals/core';
+import { parsePriceInput } from '@ss-deals/core';
 import {
   useEffect,
   useRef,
@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { follow } from '../../lib/navigate';
 import { bannerForCheck, checkAllowsSave, type UrlBanner } from './banner';
+import { formatDealPreview } from './preview';
 import { validateDealForm } from './validate';
 
 const fieldClass =
@@ -29,6 +30,7 @@ type LoadedDeal = {
   clerkNotes: string | null;
   hasImage: boolean;
   status: string;
+  editable?: boolean;
 };
 
 type ErrorBody = { error?: unknown; fields?: Record<string, string> };
@@ -44,7 +46,13 @@ function padHighlights(highlights: string[]): [string, string, string] {
   return [highlights[0] ?? '', highlights[1] ?? '', highlights[2] ?? ''];
 }
 
-export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
+export function DealForm({
+  mode = 'create',
+  dealId: initialDealId,
+}: {
+  mode?: 'create' | 'edit';
+  dealId?: string;
+}) {
   const [dealId, setDealId] = useState(initialDealId);
   const [productUrl, setProductUrl] = useState('');
   const [title, setTitle] = useState('');
@@ -64,8 +72,9 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
   const [formError, setFormError] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
   const [pending, setPending] = useState<'draft' | 'review' | undefined>();
-  const [loading, setLoading] = useState(initialDealId !== undefined);
+  const [loading, setLoading] = useState(mode === 'edit');
   const [locked, setLocked] = useState(false);
+  const [blocked, setBlocked] = useState(mode === 'edit' && initialDealId === undefined);
   const [file, setFile] = useState<File | null>(null);
   const [existingImage, setExistingImage] = useState(false);
   const [removeExisting, setRemoveExisting] = useState(false);
@@ -133,11 +142,20 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
           return;
         }
         if (!response.ok || body?.deal === undefined) {
-          setFormError(typeof body?.error === 'string' ? body.error : 'That deal was not found.');
+          if (mode === 'edit' && (response.status === 403 || response.status === 404)) {
+            setBlocked(true);
+          } else {
+            setFormError(typeof body?.error === 'string' ? body.error : 'That deal was not found.');
+          }
           setLoading(false);
           return;
         }
         const deal = body.deal;
+        if (mode === 'edit' && (deal.editable === false || deal.status !== 'draft')) {
+          setBlocked(true);
+          setLoading(false);
+          return;
+        }
         const nextPrice = rupeesFromPaise(deal.pricePaise);
         setProductUrl(deal.productUrl);
         setTitle(deal.title ?? '');
@@ -165,7 +183,7 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [initialDealId]);
+  }, [initialDealId, mode]);
 
   async function runCheck(url: string, priceText: string, id = dealRef.current): Promise<void> {
     const trimmed = url.trim();
@@ -332,7 +350,11 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
       const id = savedBody.deal.id;
       setDealId(id);
       dealRef.current = id;
-      window.history.replaceState(null, '', `/deals/new?id=${id}`);
+      window.history.replaceState(
+        null,
+        '',
+        mode === 'edit' ? `/deals/${id}/edit` : `/deals/new?id=${id}`,
+      );
 
       if (file !== null) {
         const data = new FormData();
@@ -367,7 +389,7 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
         follow('/deals/mine');
         return;
       }
-      setNotice('Draft saved.');
+      setNotice(mode === 'edit' ? 'Changes saved.' : 'Draft saved.');
     } catch {
       setFormError('The deal could not be saved. Try again.');
     } finally {
@@ -398,7 +420,7 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
     void persist(intent);
   }
 
-  const preview = buildPreview(
+  const preview = formatDealPreview(
     { title, price, oldPrice, offer, highlights, shortLink, taggedUrl },
     shortLinkHosts,
   );
@@ -410,9 +432,24 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
   const canSave = checkAllowsSave(code) && pending === undefined && !loading && !locked;
   const toneClass = {
     good: 'border-green-700 bg-green-50',
+    calm: 'border-slate-400 bg-slate-50',
     warn: 'border-amber-500 bg-amber-50',
     bad: 'border-red-700 bg-red-50',
   };
+
+  if (blocked) {
+    return (
+      <>
+        <h1 className="mb-6 text-3xl font-bold">{"You can't edit this deal"}</h1>
+        <a
+          href="/deals/mine"
+          className="inline-flex min-h-14 items-center rounded-xl bg-primary px-5 text-lg font-semibold text-white"
+        >
+          My deals
+        </a>
+      </>
+    );
+  }
 
   if (loading) {
     return <p className="text-xl">Loading the deal…</p>;
@@ -420,6 +457,7 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
 
   return (
     <div className="grid gap-8">
+      {mode === 'edit' ? <h1 className="text-3xl font-bold">Edit deal</h1> : null}
       <form className="grid gap-5" noValidate onSubmit={onSubmit}>
         <p className="text-lg">
           <span className="text-red-600">*</span> required
@@ -441,23 +479,37 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
           id="productUrl"
           label="Product page URL"
           required
-          hint="Paste the product page link from the address bar"
+          hint={
+            mode === 'edit'
+              ? 'To use a different product, start a new deal.'
+              : 'Paste the product page link from the address bar'
+          }
           error={fieldErrors.productUrl}
         >
           <input
             id="productUrl"
             name="productUrl"
             value={productUrl}
+            readOnly={mode === 'edit'}
             aria-required="true"
             aria-invalid={fieldErrors.productUrl !== undefined}
             onChange={(event) => {
+              if (mode === 'edit') {
+                return;
+              }
               urlRef.current = event.target.value;
               setProductUrl(event.target.value);
               setCode(null);
               setTaggedUrl(null);
             }}
             onBlur={() => void runCheck(urlRef.current, priceRef.current)}
-            onPaste={onUrlPaste}
+            onPaste={(event) => {
+              if (mode === 'edit') {
+                event.preventDefault();
+                return;
+              }
+              onUrlPaste(event);
+            }}
             className={fieldClass}
           />
         </Field>
@@ -655,13 +707,22 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
             />
           ) : null}
           {imageSrc !== undefined ? (
-            <button
-              type="button"
-              onClick={clearImage}
-              className="mt-3 inline-flex min-h-12 items-center rounded-xl border-2 border-slate-500 px-4 text-lg font-semibold"
-            >
-              Remove
-            </button>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => fileInput.current?.click()}
+                className="inline-flex min-h-12 items-center rounded-xl border-2 border-slate-500 px-4 text-lg font-semibold"
+              >
+                Replace
+              </button>
+              <button
+                type="button"
+                onClick={clearImage}
+                className="inline-flex min-h-12 items-center rounded-xl border-2 border-slate-500 px-4 text-lg font-semibold"
+              >
+                Remove
+              </button>
+            </div>
           ) : null}
         </Field>
 
@@ -672,7 +733,7 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
             disabled={!canSave}
             className="inline-flex min-h-14 items-center justify-center rounded-xl border-2 border-primary px-5 text-lg font-semibold text-primary disabled:opacity-50"
           >
-            {pending === 'draft' ? 'Saving…' : 'Save draft'}
+            {pending === 'draft' ? 'Saving…' : mode === 'edit' ? 'Save changes' : 'Save draft'}
           </button>
           <button
             type="submit"
@@ -701,41 +762,6 @@ export function DealForm({ dealId: initialDealId }: { dealId?: string }) {
       </section>
     </div>
   );
-}
-
-function buildPreview(
-  input: {
-    title: string;
-    price: string;
-    oldPrice: string;
-    offer: string;
-    highlights: string[];
-    shortLink: string;
-    taggedUrl: string | null;
-  },
-  shortLinkHosts: readonly string[] | null,
-) {
-  const amount = parsePriceInput(input.price);
-  const title = input.title.trim();
-  if (amount === undefined || title.length === 0 || input.taggedUrl === null) {
-    return undefined;
-  }
-  const oldAmount = input.oldPrice.trim() === '' ? undefined : parsePriceInput(input.oldPrice);
-  const shortLink = input.shortLink.trim();
-  const shortOk =
-    shortLink.length > 0 &&
-    shortLinkHosts !== null &&
-    validateShortLink(shortLink, shortLinkHosts).ok;
-  return formatPost({
-    title,
-    price: amount,
-    oldPrice: oldAmount !== undefined && oldAmount > amount ? oldAmount : undefined,
-    verified: false,
-    highlights: input.highlights.map((item) => item.trim()).filter((item) => item.length > 0),
-    offer: input.offer.trim() === '' ? undefined : input.offer.trim(),
-    linkUrl: shortOk ? shortLink : input.taggedUrl,
-    linkStyle: 'text',
-  });
 }
 
 function Field({

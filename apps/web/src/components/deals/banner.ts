@@ -1,7 +1,7 @@
 import { formatPaise } from '../../lib/money';
 
 export type UrlBanner = {
-  tone: 'good' | 'warn' | 'bad';
+  tone: 'good' | 'warn' | 'bad' | 'calm';
   text: string;
   detail?: string;
 };
@@ -19,6 +19,9 @@ export function bannerForCheck(check: UrlCheckPayload): UrlBanner {
   }
   if (check.code === 'in_queue') {
     return { tone: 'bad', text: 'Already in the queue' };
+  }
+  if (check.code === 'editing') {
+    return { tone: 'calm', text: 'Editing your deal' };
   }
   if (check.code === 'posted_lower') {
     const from = check.previousPricePaise === null ? '' : formatPaise(check.previousPricePaise);
@@ -57,5 +60,5 @@ export function bannerForCheck(check: UrlCheckPayload): UrlBanner {
 }
 
 export function checkAllowsSave(code: string | null): boolean {
-  return code === 'ok' || code === 'posted_lower';
+  return code === 'ok' || code === 'posted_lower' || code === 'editing';
 }

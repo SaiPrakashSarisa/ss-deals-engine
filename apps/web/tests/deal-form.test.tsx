@@ -186,4 +186,90 @@ describe('DealForm', () => {
     await user.click(screen.getByRole('button', { name: 'Remove' }));
     expect(screen.queryByRole('img', { name: 'Chosen image' })).toBeNull();
   });
+
+  it('prefills an editable deal, shows the editing banner, and keeps the product link read-only', async () => {
+    const user = userEvent.setup();
+    const requests: { url: string; body?: string }[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const path = String(url);
+        requests.push({ url: path, body: typeof init?.body === 'string' ? init.body : undefined });
+        if (path.endsWith('/config')) {
+          return Response.json({ shortLinkHosts: ['amzn.to', 'link.amazon'], maxUploadMb: 5 });
+        }
+        if (path.endsWith('/check-url')) {
+          return Response.json(checkResponse({ code: 'editing' }));
+        }
+        if (path.endsWith('/deal-1') && (init?.method === undefined || init.method === 'GET')) {
+          return Response.json({
+            deal: {
+              title: 'Blue kettle',
+              productUrl: 'https://www.amazon.in/dp/B0TEST1234',
+              taggedUrl,
+              pricePaise: 149_900,
+              oldPricePaise: 200_000,
+              highlights: ['Steel', '1.5 L'],
+              offer: 'Bank offer',
+              shortLink: 'https://amzn.to/kettle1',
+              sourceNote: 'Deals group',
+              clerkNotes: 'Looks good',
+              hasImage: true,
+              status: 'draft',
+              editable: true,
+            },
+          });
+        }
+        if (path.endsWith('/deal-1') && init?.method === 'PATCH') {
+          return Response.json({ deal: { id: 'deal-1' } });
+        }
+        return Response.json({ error: 'unexpected' }, { status: 500 });
+      }),
+    );
+
+    render(<DealForm mode="edit" dealId="deal-1" />);
+    expect(await screen.findByRole('heading', { name: 'Edit deal' })).toBeTruthy();
+    expect((screen.getByLabelText(/^Title/) as HTMLInputElement).value).toBe('Blue kettle');
+    expect((screen.getByLabelText(/^Price/) as HTMLInputElement).value).toBe('1499');
+    expect((screen.getByLabelText(/^Old price/) as HTMLInputElement).value).toBe('2000');
+    expect((screen.getByLabelText(/^Offer/) as HTMLInputElement).value).toBe('Bank offer');
+    expect((screen.getByLabelText('Highlight 1') as HTMLInputElement).value).toBe('Steel');
+    expect((screen.getByLabelText('Found in group') as HTMLInputElement).value).toBe('Deals group');
+    expect((screen.getByLabelText('Notes') as HTMLInputElement).value).toBe('Looks good');
+    const productUrl = screen.getByLabelText(/^Product page URL/) as HTMLInputElement;
+    expect(productUrl.value).toBe('https://www.amazon.in/dp/B0TEST1234');
+    expect(productUrl.readOnly).toBe(true);
+    expect(screen.getByText('To use a different product, start a new deal.')).toBeTruthy();
+    expect(await screen.findByText('Editing your deal')).toBeTruthy();
+    expect(screen.queryByText('Already in the queue')).toBeNull();
+    expect(screen.getByRole('img', { name: 'Deal image' }).getAttribute('src')).toBe(
+      '/api/deals/deal-1/image',
+    );
+    expect(screen.getByRole('button', { name: 'Replace' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy();
+    expect(document.body.textContent?.toLowerCase()).not.toMatch(/clerk|\bowner\b/);
+    const check = requests.find((request) => request.url.endsWith('/check-url'));
+    expect(check?.body).toContain('"dealId":"deal-1"');
+
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText('Changes saved.')).toBeTruthy();
+    expect(follow).not.toHaveBeenCalled();
+    expect(screen.getByRole('heading', { name: 'Edit deal' })).toBeTruthy();
+  });
+
+  it('shows a clear page when the deal cannot be edited', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).endsWith('/config')) {
+          return Response.json({ shortLinkHosts: ['amzn.to'], maxUploadMb: 5 });
+        }
+        return Response.json({ error: 'That deal was not found.' }, { status: 404 });
+      }),
+    );
+    render(<DealForm mode="edit" dealId="deal-9" />);
+    expect(await screen.findByRole('heading', { name: "You can't edit this deal" })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'My deals' }).getAttribute('href')).toBe('/deals/mine');
+  });
 });
