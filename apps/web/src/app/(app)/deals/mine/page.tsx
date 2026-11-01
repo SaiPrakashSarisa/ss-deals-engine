@@ -1,10 +1,19 @@
+import { DealList } from '../../../../components/deals/DealList';
+import { loadMyDeals } from '../../../../lib/deals';
+
 export const dynamic = 'force-dynamic';
 
-export default function MyDealsPage() {
+export default async function MyDealsPage() {
+  const deals = await loadMyDeals();
+
   return (
-    <section className="rounded-2xl border border-line bg-white p-6">
-      <h1 className="text-3xl font-bold">My deals</h1>
-      <p className="mt-4 text-xl">Your deals will show up here.</p>
+    <section>
+      <h1 className="mb-6 text-3xl font-bold">My deals</h1>
+      {deals === null ? (
+        <p className="text-xl">Your deals could not be loaded. Try again.</p>
+      ) : (
+        <DealList deals={deals} />
+      )}
     </section>
   );
 }
