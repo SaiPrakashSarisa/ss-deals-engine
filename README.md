@@ -111,7 +111,7 @@ The API listens on `127.0.0.1:3000` on the host. Put a reverse proxy in front of
 | `pnpm test`                        | Vitest in every workspace package. Postgres integration runs only when `TEST_DATABASE_URL` is set |
 | `pnpm lint`                        | ESLint and Prettier                                                                               |
 | `pnpm typecheck`                   | `tsc --noEmit` in every workspace package                                                         |
-| `pnpm db:generate`                 | Create a Drizzle migration from `src/lib/schema.ts`                                               |
+| `pnpm db:generate`                 | Create a Drizzle migration. Drizzle Kit reads `src/db/schema/index.ts`                            |
 | `pnpm db:migrate`                  | Apply migrations                                                                                  |
 
 ## Tests

@@ -65,3 +65,13 @@ A new deal for a product that was already published is allowed only when the new
 ### Schema layout
 
 Business tables are Drizzle modules under `apps/server/src/db/schema`. `drizzle.config.ts` reads that folder's `index.ts`. `src/lib/schema.ts` re-exports it so the existing database client stays on the same import. `app_meta` is unchanged. `audit_log.actor_user_id` is not a foreign key, so an audit row can outlive the user it names.
+
+## 2026-11-01 — Integrity follow-ups
+
+### A deal and its link share a product
+
+`UNIQUE(id, product_id)` on `affiliate_links` and `deals` lets a composite foreign key check the pair, which a foreign key on `id` alone cannot. `deals(link_id, product_id)` references `affiliate_links(id, product_id)`. `publications(deal_id, product_id)` references `deals(id, product_id)`. The original single-column foreign keys remain, so each id still has to exist.
+
+### updated_at is maintained by a trigger
+
+`set_updated_at()` runs `BEFORE UPDATE` on `users`, `deals`, `publications`, and `settings`, and assigns `updated_at = now()`. Drizzle Kit does not emit triggers, so that SQL is in migration `0002` with the composite keys. The application does not have to remember the column.

@@ -4,7 +4,7 @@ Phase 1 stores the clerk review flow in PostgreSQL. Drizzle schema modules live 
 
 `app_meta` remains the process-metadata table from the foundation migration.
 
-`created_at` and `updated_at` default to `now()` on insert. The database does not refresh `updated_at` on later updates; the application sets it. `affiliate_links` and `audit_log` store `created_at` only. `price_snapshots` stores `recorded_at`. `settings` stores `updated_at` only. `products`, `channels`, and `content_drafts` have no timestamp columns.
+`created_at` and `updated_at` default to `now()` on insert. The function `set_updated_at()` runs from a `BEFORE UPDATE` trigger of the same name on `users`, `deals`, `publications`, and `settings`, and sets `updated_at = now()`. `affiliate_links` and `audit_log` store `created_at` only. `price_snapshots` stores `recorded_at`. `settings` stores `updated_at` only. `products`, `channels`, and `content_drafts` have no timestamp columns.
 
 ## Tables
 
@@ -32,6 +32,8 @@ Phase 1 stores the clerk review flow in PostgreSQL. Drizzle schema modules live 
 **Offer text.** `offer_text` is null or at most 120 characters.
 
 **Current draft.** Partial unique index `content_drafts_one_current_per_deal`.
+
+**Same product.** `affiliate_links` has `UNIQUE(id, product_id)`. `deals` has `UNIQUE(id, product_id)` and a composite foreign key `(link_id, product_id)` to `affiliate_links(id, product_id)`. `publications` has a composite foreign key `(deal_id, product_id)` to `deals(id, product_id)`. The single-column foreign keys stay. A deal cannot use a link from another product, and a publication cannot name a different product than its deal.
 
 Foreign keys use `ON DELETE NO ACTION`. Inserts that point at a missing parent fail.
 
