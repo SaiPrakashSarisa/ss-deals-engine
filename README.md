@@ -103,16 +103,16 @@ The API listens on `127.0.0.1:3000` on the host. Put a reverse proxy in front of
 
 ## Scripts
 
-| Script                             | What it does                                                           |
-| ---------------------------------- | ---------------------------------------------------------------------- |
-| `pnpm dev` / `pnpm dev:worker`     | API or worker with watch mode                                          |
-| `pnpm build`                       | Compile the server to `apps/server/dist`                               |
-| `pnpm start` / `pnpm start:worker` | Run the compiled processes                                             |
-| `pnpm test`                        | Vitest. Postgres integration runs only when `TEST_DATABASE_URL` is set |
-| `pnpm lint`                        | ESLint and Prettier                                                    |
-| `pnpm typecheck`                   | `tsc --noEmit`                                                         |
-| `pnpm db:generate`                 | Create a Drizzle migration from `src/lib/schema.ts`                    |
-| `pnpm db:migrate`                  | Apply migrations                                                       |
+| Script                             | What it does                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `pnpm dev` / `pnpm dev:worker`     | API or worker with watch mode                                                                     |
+| `pnpm build`                       | Compile the server to `apps/server/dist`                                                          |
+| `pnpm start` / `pnpm start:worker` | Run the compiled processes                                                                        |
+| `pnpm test`                        | Vitest in every workspace package. Postgres integration runs only when `TEST_DATABASE_URL` is set |
+| `pnpm lint`                        | ESLint and Prettier                                                                               |
+| `pnpm typecheck`                   | `tsc --noEmit` in every workspace package                                                         |
+| `pnpm db:generate`                 | Create a Drizzle migration from `src/lib/schema.ts`                                               |
+| `pnpm db:migrate`                  | Apply migrations                                                                                  |
 
 ## Tests
 
