@@ -12,3 +12,25 @@ body {
   background: var(--color-canvas);
   color: var(--color-ink);
 }
+
+button,
+[role='button'],
+a[href],
+summary,
+label:has(:is(input[type='checkbox'], input[type='radio'], [role='switch'])),
+input[type='checkbox'],
+input[type='radio'],
+input[type='file'],
+select,
+[role='switch'],
+[onclick] {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled,
+[aria-disabled='true'] {
+  cursor: not-allowed;
+}
