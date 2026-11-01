@@ -2,6 +2,7 @@ import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import type { Logger } from 'pino';
 import type { Database } from '../lib/db.js';
 import { registerAuthRoutes, type AuthRouteDeps } from '../modules/auth/routes.js';
+import { registerDealRoutes, type DealRouteDeps } from '../modules/deals/routes.js';
 import { registerHealthRoutes } from '../modules/health/routes.js';
 
 const BODY_LIMIT_BYTES = 16 * 1024;
@@ -11,10 +12,13 @@ export type AuthAppOptions = Omit<AuthRouteDeps, 'db' | 'now'> & {
   now?: () => Date;
 };
 
+export type DealsAppOptions = Omit<DealRouteDeps, 'db' | 'now' | 'cookieName' | 'cookieSecure'>;
+
 export function buildApp(options: {
   checkDb: () => Promise<boolean>;
   logger?: Logger;
   auth?: AuthAppOptions;
+  deals?: DealsAppOptions;
 }): FastifyInstance {
   const shared = {
     bodyLimit: BODY_LIMIT_BYTES,
@@ -43,10 +47,20 @@ export function buildApp(options: {
   registerHealthRoutes(app, { checkDb: options.checkDb });
 
   if (options.auth !== undefined) {
+    const now = options.auth.now ?? (() => new Date());
     registerAuthRoutes(app, {
       ...options.auth,
-      now: options.auth.now ?? (() => new Date()),
+      now,
     });
+    if (options.deals !== undefined) {
+      registerDealRoutes(app, {
+        ...options.deals,
+        db: options.auth.db,
+        now,
+        cookieName: options.auth.cookieName,
+        cookieSecure: options.auth.cookieSecure,
+      });
+    }
   }
 
   return app;

@@ -22,6 +22,12 @@ export async function startApi(): Promise<void> {
       allowedOrigins: config.ALLOWED_ORIGIN,
       enableTestRoutes: testRoutesEnabled(config.NODE_ENV),
     },
+    deals: {
+      amazonTag: config.AMAZON_TAG,
+      shortLinkHosts: config.SHORT_LINK_HOSTS,
+      uploadDir: config.UPLOAD_DIR,
+      maxUploadBytes: config.MAX_UPLOAD_MB * 1024 * 1024,
+    },
   });
 
   const shutdown = createShutdownHandler({
