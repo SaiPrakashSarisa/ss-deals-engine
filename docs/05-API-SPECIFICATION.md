@@ -6,13 +6,16 @@ The HTTP API is the Fastify process in `apps/server`. This note covers sign-in. 
 
 Passwords are stored only as scrypt hashes in `users.password_hash`. A session cookie holds a random 32-byte token. The database stores the SHA-256 hash of that token, not the token itself.
 
-| Method | Path               | Body                         | Success                                                           |
-| ------ | ------------------ | ---------------------------- | ----------------------------------------------------------------- |
-| `POST` | `/api/auth/login`  | `{ "username", "password" }` | `200` `{ "user": { "id", "username", "role" } }` and `Set-Cookie` |
-| `POST` | `/api/auth/logout` | none                         | `204` and a cleared cookie                                        |
-| `GET`  | `/api/auth/me`     | none                         | `200` `{ "id", "username", "role" }`                              |
+| Method | Path                        | Body                                   | Success                                                           |
+| ------ | --------------------------- | -------------------------------------- | ----------------------------------------------------------------- |
+| `POST` | `/api/auth/login`           | `{ "username", "password" }`           | `200` `{ "user": { "id", "username", "role" } }` and `Set-Cookie` |
+| `POST` | `/api/auth/logout`          | none                                   | `204` and a cleared cookie                                        |
+| `GET`  | `/api/auth/me`              | none                                   | `200` `{ "id", "username", "role", "displayName" }`               |
+| `POST` | `/api/auth/change-password` | `{ "currentPassword", "newPassword" }` | `200` `{ "ok": true }`                                            |
 
-`role` is `owner` or `clerk`.
+`role` is `owner` or `clerk`. `displayName` is the person's saved name, or their username when no name is saved. A name is at most 60 characters.
+
+The new password must be at least 12 characters and must differ from the current one. A wrong current password is `401`. The current session stays signed in. Every other session for that person is revoked. Five failed attempts for the same username and IP within 15 minutes return `429`.
 
 Unknown users, wrong passwords, and inactive users all receive `401` and the same message: `The username or password is incorrect.` A missing username or password is `400`.
 

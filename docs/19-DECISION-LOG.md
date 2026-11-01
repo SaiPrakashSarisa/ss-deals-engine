@@ -90,7 +90,11 @@ The desk has an owner and a clerk. Passwords use Node's built-in scrypt. Session
 
 ### The owner can open the clerk pages
 
-`requireRole` on the API is exact: an owner token does not pass a clerk-only guard. The web pages are different. `/owner` is owner-only and returns 403 for a clerk. `/clerk` is the future deal form, and the owner is allowed to open it. The nav hides Review queue from the clerk.
+`requireRole` on the API is exact: an owner token does not pass a clerk-only guard. The web pages are different. `/admin` is limited to the admin role and returns 403 for anyone else. Deal pages are open to both people. The nav hides Review queue from anyone who is not an admin.
+
+### People are shown by name
+
+`users.display_name` is an optional name of at most 60 characters. The profile returns it, and falls back to the username. The screen says Admin for that role and shows no role word for anyone else. `/owner` and `/clerk` redirect to `/admin` and `/deals`. Changing a password from the Account page checks the current password, requires a different password of at least 12 characters, and revokes every other session.
 
 ### Test guard routes stay out of production
 

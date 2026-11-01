@@ -8,7 +8,7 @@ Node's `crypto.scrypt` hashes passwords with a random salt. The hash string reco
 
 ## Sessions
 
-The cookie value is 32 random bytes, encoded as base64url. The `sessions.id` column is the SHA-256 hash of that value. A session ends when it is revoked, when it has been idle for 12 hours, or 7 days after it was created, whichever comes first. Activity moves the idle deadline forward and stops at the 7-day mark. Deactivating a user or setting a new password revokes that user's sessions.
+The cookie value is 32 random bytes, encoded as base64url. The `sessions.id` column is the SHA-256 hash of that value. A session ends when it is revoked, when it has been idle for 12 hours, or 7 days after it was created, whichever comes first. Activity moves the idle deadline forward and stops at the 7-day mark. Deactivating a user or setting a new password from the command line revokes that user's sessions. Changing a password while signed in checks the current password and revokes every session except the one that made the change. That route allows 5 failures per username and IP in 15 minutes.
 
 The cookie is `HttpOnly` and `SameSite=Lax`. `COOKIE_SECURE` defaults to false so local `http://localhost:3001` works. Set it to true only behind HTTPS. `ALLOWED_ORIGIN` defaults to `http://localhost:3001`. A browser opened at `http://127.0.0.1:3001` sends a different origin, so add that origin to the list before using it. Every state-changing request must send a matching `Origin` or it is rejected.
 
@@ -16,7 +16,7 @@ The cookie is `HttpOnly` and `SameSite=Lax`. `COOKIE_SECURE` defaults to false s
 
 Login allows 5 failures per username and IP, and 20 failures per IP, in a 15-minute window. The next attempt is HTTP 429. Failures wait 250ms before responding. Bodies over 16 KiB are rejected. Responses send nosniff, `X-Frame-Options: DENY`, a `default-src 'none'` content security policy, and the usual lock-down headers. `Strict-Transport-Security` is sent only when `COOKIE_SECURE` is true.
 
-Logs redact `password`, cookies, and session tokens. The guard routes under `/api/auth/test/` are not registered when `NODE_ENV=production`.
+Logs redact passwords, including `currentPassword` and `newPassword`, plus cookies and session tokens. The guard routes under `/api/auth/test/` are not registered when `NODE_ENV=production`.
 
 ## Network
 
