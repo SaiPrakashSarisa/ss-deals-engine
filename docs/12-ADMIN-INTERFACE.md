@@ -4,22 +4,23 @@
 
 ## Pages
 
-| Path               | Who        | What is on the page                                                                                                                                 |
-| ------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/login`           | signed out | Username and password. Errors stay on the form. The button stays disabled while the request is in flight. Too many attempts shows the wait message. |
-| `/`                | signed in  | Sends an admin to `/admin` and everyone else to `/deals`.                                                                                           |
-| `/admin`           | admin      | Placeholder: Review queue coming in T6. Anyone else receives 403: "You don't have access to this page."                                             |
-| `/deals`           | signed in  | Two buttons: New deal and My deals.                                                                                                                 |
-| `/deals/new`       | signed in  | Deal form. `?id=` opens a draft, including one that was sent back. Other statuses are read-only.                                                    |
-| `/deals/mine`      | signed in  | That person's deals, with a status badge and the review note when a deal was sent back or rejected.                                                 |
-| `/account`         | signed in  | Change password. The current sign-in stays. Other sessions are signed out.                                                                          |
-| `/owner`, `/clerk` | signed in  | Redirect to `/admin` and `/deals`.                                                                                                                  |
+| Path               | Who        | What is on the page                                                                                                                                                              |
+| ------------------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/login`           | signed out | Username and password. Errors stay on the form. The button stays disabled while the request is in flight. Too many attempts shows the wait message.                              |
+| `/`                | signed in  | Sends an admin to `/admin` and everyone else to `/deals`.                                                                                                                        |
+| `/admin`           | admin      | Placeholder: Review queue coming in T6. Anyone else receives 403: "You don't have access to this page."                                                                          |
+| `/deals`           | signed in  | Two buttons: New deal and My deals.                                                                                                                                              |
+| `/deals/new`       | signed in  | Deal form. `?id=` redirects to the edit page.                                                                                                                                    |
+| `/deals/[id]/edit` | signed in  | The same form, filled with that person's draft. The product link is read-only. Other deals show "You can't edit this deal".                                                      |
+| `/deals/mine`      | signed in  | That person's deals, with Preview, a status badge, and the review note when a deal was sent back or rejected. Edit opens the form. A deal waiting for review is withdrawn first. |
+| `/account`         | signed in  | Change password. The current sign-in stays. Other sessions are signed out.                                                                                                       |
+| `/owner`, `/clerk` | signed in  | Redirect to `/admin` and `/deals`.                                                                                                                                               |
 
 Someone who is not signed in is sent to `/login`. The screen does not use the words owner or clerk.
 
 ## Shell
 
-The signed-in pages share a top bar: the name SS Deals, the person's display name, Account, and Log out. An admin also sees a small Admin label. Under that, an admin sees Review queue and New deal. Everyone else sees New deal and My deals. Controls are large and the colours are teal `#0F766E`, amber `#F59E0B`, slate text, and an off-white background.
+The signed-in pages share a top bar: the name SS Deals, the person's display name, Account, and Log out. An admin also sees a small Admin label. Under that, an admin sees Review queue and New deal. Everyone else sees New deal and My deals. Controls are large and the colours are teal `#0F766E`, amber `#F59E0B`, slate text, and an off-white background. Buttons, links, summaries, file pickers, selects, and checkbox or radio labels use a pointer cursor. Disabled controls use a not-allowed cursor.
 
 ## Run
 

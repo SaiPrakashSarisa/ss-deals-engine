@@ -37,18 +37,19 @@ Every deal route requires a signed-in session. `POST`, `PATCH`, and `DELETE` als
 
 The server never requests the pasted URL or any Amazon page. It parses the link locally, stores money as integer paise, and forces `old_price_verified` to false. The deal title is stored on `deals.title`. `products.title` keeps the latest known title and is not returned on deal screens.
 
-| Method   | Path                    | Body                             | Success                                     |
-| -------- | ----------------------- | -------------------------------- | ------------------------------------------- |
-| `GET`    | `/api/deals/config`     | none                             | `200` `{ "shortLinkHosts", "maxUploadMb" }` |
-| `POST`   | `/api/deals/check-url`  | `{ "url", "price?", "dealId?" }` | `200` URL check                             |
-| `POST`   | `/api/deals`            | deal fields                      | `201` `{ "deal" }`                          |
-| `GET`    | `/api/deals`            | none                             | `200` `{ "deals" }`                         |
-| `GET`    | `/api/deals/:id`        | none                             | `200` `{ "deal" }`                          |
-| `PATCH`  | `/api/deals/:id`        | deal fields                      | `200` `{ "deal" }`                          |
-| `POST`   | `/api/deals/:id/submit` | none                             | `200` `{ "deal" }`                          |
-| `POST`   | `/api/deals/:id/image`  | one multipart file               | `200` `{ "deal" }`                          |
-| `GET`    | `/api/deals/:id/image`  | none                             | image bytes                                 |
-| `DELETE` | `/api/deals/:id/image`  | none                             | `204`                                       |
+| Method   | Path                      | Body                             | Success                                     |
+| -------- | ------------------------- | -------------------------------- | ------------------------------------------- |
+| `GET`    | `/api/deals/config`       | none                             | `200` `{ "shortLinkHosts", "maxUploadMb" }` |
+| `POST`   | `/api/deals/check-url`    | `{ "url", "price?", "dealId?" }` | `200` URL check                             |
+| `POST`   | `/api/deals`              | deal fields                      | `201` `{ "deal" }`                          |
+| `GET`    | `/api/deals`              | none                             | `200` `{ "deals" }`                         |
+| `GET`    | `/api/deals/:id`          | none                             | `200` `{ "deal" }`                          |
+| `PATCH`  | `/api/deals/:id`          | deal fields                      | `200` `{ "deal" }`                          |
+| `POST`   | `/api/deals/:id/submit`   | none                             | `200` `{ "deal" }`                          |
+| `POST`   | `/api/deals/:id/withdraw` | none                             | `200` `{ "deal" }`                          |
+| `POST`   | `/api/deals/:id/image`    | one multipart file               | `200` `{ "deal" }`                          |
+| `GET`    | `/api/deals/:id/image`    | none                             | image bytes                                 |
+| `DELETE` | `/api/deals/:id/image`    | none                             | `204`                                       |
 
 `GET /api/deals/config` is for a signed-in person. `shortLinkHosts` is the server's `SHORT_LINK_HOSTS`. `maxUploadMb` is the upload limit in megabytes. The deal form uses these instead of a fixed host list. An anonymous call is `401`.
 
@@ -58,9 +59,13 @@ Deal fields: `productUrl` (required), `title` (required, max 200), `price` (requ
 
 `POST /api/deals` creates a `draft`. It upserts the Amazon product (`external_id` is the ASIN) and an affiliate link (`verification` `tag_appended`, `validation_status` `structure_ok`, tagged with `AMAZON_TAG`). It refuses with `409` when that product already has a deal in `draft`, `pending_approval`, `approved`, or `scheduled`, or when the last published price is missing or is not higher than the new price. A missing earlier price tells the person to ask an admin. Each create writes `audit_log` action `deal.create`.
 
-`POST /api/deals/check-url` returns `{ "ok", "asin", "problems", "code", "activeDeal", "repost", "previousPricePaise", "newPricePaise", "taggedUrl" }`. `code` is `ok`, `invalid`, `in_queue`, `posted_lower`, `posted_blocked`, `posted_unknown_price`, or `awaiting_price`. Passing the caller's own `dealId` leaves that draft out of the active-deal check. It inserts nothing.
+`POST /api/deals/check-url` returns `{ "ok", "asin", "problems", "code", "activeDeal", "repost", "previousPricePaise", "newPricePaise", "taggedUrl" }`. `code` is `ok`, `editing`, `invalid`, `in_queue`, `posted_lower`, `posted_blocked`, `posted_unknown_price`, or `awaiting_price`. When `dealId` is the signed-in person's active deal for that product, the check ignores that deal and returns `editing` instead of `in_queue`. Another person's active deal is still `in_queue`. A repost still has to be a lower price: `posted_lower` when it is, and `posted_blocked` when it is not. The check inserts nothing.
+
+A deal object includes `editable`. It is true only when the caller created that deal and it is still a `draft`.
 
 `PATCH` updates only the creator's own `draft`. Any other status is `409`. A deal the caller cannot read is `404`. An admin who did not create the draft gets `403`.
+
+`POST /api/deals/:id/withdraw` moves the creator's own `pending_approval` deal back to `draft` and writes `audit_log` action `deal.withdraw`. Any other status is `409`. Someone who did not create the deal gets `403` when they can read it, and `404` when they cannot. The deal can then be edited and sent for review again. The repost rule is checked again on update and on submit.
 
 `POST /api/deals/:id/submit` moves `draft` to `pending_approval`, sets `submitted_at`, and writes a `price_snapshots` row with origin `clerk_entered`. The title and product link must still be present. A second submit, or a submit from any other status, is `409`.
 

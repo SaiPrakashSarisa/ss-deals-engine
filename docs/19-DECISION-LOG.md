@@ -129,3 +129,21 @@ Uploads are JPEG, PNG, or WebP, detected from magic bytes, re-encoded with `shar
 ### Draft and upload limits
 
 Each person can create 30 drafts and upload 30 images per hour. Field errors are returned per field. An active deal for the same product, or a repost that is not a lower price, is rejected before a new draft is stored. A missing previous posted price is refused until an admin looks at it.
+
+## 2026-11-01 — Preview, edit, and withdraw
+
+### Editing a deal is not a second deal in the queue
+
+`POST /api/deals/check-url` accepts the deal being edited. When that deal is the signed-in person's active deal for the product, the check ignores it and returns `editing`. The form says "Editing your deal" and does not say the product is already in the queue. Another person's active deal is still a conflict. The lower-price rule for a product that was posted before still applies to the edited price, on the check and again on update and submit.
+
+### Leaving the review queue is a status move
+
+The creator can withdraw a deal from `pending_approval` back to `draft`. The move goes through the status module. Any other status is `409`. The action is `deal.withdraw`. The screen asks for confirmation first. If an admin has already changed the deal, the request is `409` and the list refreshes.
+
+### The preview uses the same post as the form
+
+My deals opens a modal with `formatPost` from `@ss-deals/core`, the stored fields, and the same options the form preview uses (`verified` false, text link). The image is the signed-in `GET /api/deals/:id/image`. The modal traps focus, closes on Escape and the backdrop, locks page scroll, and returns focus to the button that opened it.
+
+### The edit page is the same form
+
+`/deals/[id]/edit` renders the deal form in edit mode. The product link is read-only. Save changes stays on the page. A deal the person cannot edit, including someone else's deal, shows "You can't edit this deal". The screen does not use role words. Clickable controls use a pointer cursor, and disabled controls use a not-allowed cursor.
