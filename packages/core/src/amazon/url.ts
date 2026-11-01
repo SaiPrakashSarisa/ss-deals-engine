@@ -49,6 +49,24 @@ export function buildTaggedProductUrl(asin: string, tag: string): string {
   return url.toString();
 }
 
+export const buildTaggedUrl = buildTaggedProductUrl;
+
+export type ShortLinkResult = { ok: true; url: string } | { ok: false };
+
+export function validateShortLink(raw: string, hosts: readonly string[]): ShortLinkResult {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return { ok: false };
+  }
+  const allowed = new Set(hosts.map((host) => host.toLowerCase()));
+  if (parsed.protocol !== 'https:' || !allowed.has(parsed.hostname)) {
+    return { ok: false };
+  }
+  return { ok: true, url: raw };
+}
+
 function classifyHost(hostname: string): 'amazon' | 'short' | 'other' {
   const host = hostname.toLowerCase();
   if (AMAZON_IN_HOSTS.has(host)) {

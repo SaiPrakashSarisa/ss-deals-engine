@@ -11,13 +11,17 @@ FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/server/package.json ./apps/server/package.json
 COPY apps/quickpost/package.json ./apps/quickpost/package.json
+COPY packages/core/package.json ./packages/core/package.json
 RUN pnpm install --frozen-lockfile --filter @ss-deals/quickpost...
 
 FROM deps AS build
 COPY tsconfig.base.json ./
+COPY packages/core/tsconfig.json ./packages/core/tsconfig.json
+COPY packages/core/src ./packages/core/src
 COPY apps/quickpost/tsconfig.json ./apps/quickpost/tsconfig.json
 COPY apps/quickpost/src ./apps/quickpost/src
-RUN pnpm --filter @ss-deals/quickpost build \
+RUN pnpm --filter @ss-deals/core build \
+    && pnpm --filter @ss-deals/quickpost build \
     && pnpm --filter @ss-deals/quickpost deploy --prod /out \
     && rm -rf /out/dist \
     && cp -R apps/quickpost/dist /out/dist

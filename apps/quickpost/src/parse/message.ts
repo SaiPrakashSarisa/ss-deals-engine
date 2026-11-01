@@ -1,6 +1,8 @@
-import { parseAmazonProductUrl } from '../amazon/url.js';
+import { parseAmazonProductUrl, parseRupeeAmount, validateShortLink } from '@ss-deals/core';
 import { DEFAULT_SHORT_LINK_HOSTS } from '../config/env.js';
 import type { DealDraft } from '../deal.js';
+
+export { parseRupeeAmount };
 
 export type ParseResult = { ok: true; draft: DealDraft } | { ok: false; errors: string[] };
 
@@ -60,22 +62,6 @@ export function parseDealMessage(
     draft.linkPreview = false;
   }
   return { ok: true, draft };
-}
-
-export function parseRupeeAmount(raw: string): number | undefined {
-  let text = raw.trim();
-  if (text.startsWith('₹')) {
-    text = text.slice(1).trim();
-  }
-  text = text.replaceAll(',', '');
-  if (!/^[1-9]\d{0,11}$/.test(text)) {
-    return undefined;
-  }
-  const amount = Number(text);
-  if (!Number.isSafeInteger(amount) || amount <= 0) {
-    return undefined;
-  }
-  return amount;
 }
 
 export function firstHttpUrl(text: string): string | undefined {
@@ -234,20 +220,12 @@ function readShort(
   if (shortRaw === undefined) {
     return undefined;
   }
-  const message = shortLinkError(hosts);
-  let parsed: URL;
-  try {
-    parsed = new URL(shortRaw);
-  } catch {
-    errors.push(message);
+  const checked = validateShortLink(shortRaw, hosts);
+  if (!checked.ok) {
+    errors.push(shortLinkError(hosts));
     return undefined;
   }
-  const allowed = new Set(hosts.map((host) => host.toLowerCase()));
-  if (parsed.protocol !== 'https:' || !allowed.has(parsed.hostname)) {
-    errors.push(message);
-    return undefined;
-  }
-  return shortRaw;
+  return checked.url;
 }
 
 function readPreview(previewRaw: string | undefined, errors: string[]): boolean {

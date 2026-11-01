@@ -2,7 +2,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { rm } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AMAZON_BUTTON_LABEL } from '../src/format/post.js';
+import { AMAZON_BUTTON_LABEL } from '@ss-deals/core';
 import { shortLinkError } from '../src/parse/message.js';
 import {
   callbackData,

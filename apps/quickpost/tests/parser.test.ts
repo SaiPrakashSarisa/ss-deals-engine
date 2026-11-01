@@ -1,7 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import { describe, expect, it, vi } from 'vitest';
-import { SHORT_LINK_MESSAGE } from '../src/amazon/url.js';
+import { SHORT_LINK_MESSAGE } from '@ss-deals/core';
 import { parseDealMessage, shortLinkError } from '../src/parse/message.js';
 
 const tag = 'ssdeals-21';

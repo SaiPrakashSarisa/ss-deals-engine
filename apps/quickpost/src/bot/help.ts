@@ -1,4 +1,4 @@
-import { FORBIDDEN_PHRASES } from '../format/post.js';
+import { FORBIDDEN_PHRASES } from '@ss-deals/core';
 
 export function helpText(dailyPostLimit: number): string {
   return [

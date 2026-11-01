@@ -104,6 +104,8 @@ export function findForbiddenPhrases(text: string): string[] {
   return FORBIDDEN_PHRASES.filter((phrase) => lower.includes(phrase));
 }
 
+export const findForbiddenWords = findForbiddenPhrases;
+
 function collectWarnings(input: FormatInput): string[] {
   const warnings: string[] = [];
   const found = findForbiddenPhrases([input.title, ...input.highlights].join('\n'));
