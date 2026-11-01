@@ -16,7 +16,10 @@
     "test": "vitest run --reporter=verbose",
     "typecheck": "tsc -p tsconfig.typecheck.json --noEmit",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "node --env-file-if-exists=../../.env --import tsx src/scripts/migrate.ts"
+    "db:migrate": "node --env-file-if-exists=../../.env --import tsx src/scripts/migrate.ts",
+    "user:create": "node --env-file-if-exists=../../.env --import tsx src/scripts/user-admin.ts create",
+    "user:set-password": "node --env-file-if-exists=../../.env --import tsx src/scripts/user-admin.ts set-password",
+    "user:deactivate": "node --env-file-if-exists=../../.env --import tsx src/scripts/user-admin.ts deactivate"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",
