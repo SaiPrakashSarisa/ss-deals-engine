@@ -15,6 +15,7 @@ import {
   priceSnapshots,
   products,
   publications,
+  settings,
   users,
 } from '../../src/db/schema/index.js';
 
@@ -605,6 +606,124 @@ describe.skipIf(databaseUrl === '')('phase 1 schema constraints', () => {
         }),
       '23503',
     );
+  });
+
+  it('rejects a deal whose link belongs to another product and a publication for another product', async () => {
+    const user = await insertUser();
+    const product = await insertProduct();
+    const otherProduct = await insertProduct();
+    const link = await insertLink(product.id, user.id);
+
+    await expectPostgresCode(
+      () =>
+        insertDeal({
+          productId: otherProduct.id,
+          linkId: link.id,
+          createdBy: user.id,
+        }),
+      '23503',
+    );
+
+    const deal = await insertDeal({
+      productId: product.id,
+      linkId: link.id,
+      createdBy: user.id,
+      status: 'published',
+    });
+    const draft = await insertCurrentDraft(deal.id);
+    const channel = await insertChannel();
+
+    await expectPostgresCode(
+      () =>
+        database().insert(publications).values({
+          dealId: deal.id,
+          productId: otherProduct.id,
+          channelId: channel.id,
+          contentDraftId: draft.id,
+          status: 'queued',
+        }),
+      '23503',
+    );
+
+    await database().insert(publications).values({
+      dealId: deal.id,
+      productId: product.id,
+      channelId: channel.id,
+      contentDraftId: draft.id,
+      status: 'queued',
+    });
+  });
+
+  it('sets updated_at to a later time when a row is updated', async () => {
+    const user = await insertUser();
+    const product = await insertProduct();
+    const link = await insertLink(product.id, user.id);
+    const deal = await insertDeal({
+      productId: product.id,
+      linkId: link.id,
+      createdBy: user.id,
+      status: 'published',
+    });
+    const draft = await insertCurrentDraft(deal.id);
+    const channel = await insertChannel();
+    const [publication] = await database()
+      .insert(publications)
+      .values({
+        dealId: deal.id,
+        productId: product.id,
+        channelId: channel.id,
+        contentDraftId: draft.id,
+        status: 'published',
+      })
+      .returning();
+    const [setting] = await database()
+      .insert(settings)
+      .values({ key: token('setting'), value: { enabled: false } })
+      .returning();
+
+    if (publication === undefined || setting === undefined) {
+      throw new Error('updated_at fixture insert did not return a row');
+    }
+
+    if (pool === undefined) {
+      throw new Error('schema integration database is not connected');
+    }
+    await pool.query('SELECT pg_sleep(0.02)');
+
+    const [updatedUser] = await database()
+      .update(users)
+      .set({ username: token('renamed') })
+      .where(eq(users.id, user.id))
+      .returning();
+    const [updatedDeal] = await database()
+      .update(deals)
+      .set({ reviewNote: 'checked' })
+      .where(eq(deals.id, deal.id))
+      .returning();
+    const [updatedPublication] = await database()
+      .update(publications)
+      .set({ attempts: 1 })
+      .where(eq(publications.id, publication.id))
+      .returning();
+    const [updatedSetting] = await database()
+      .update(settings)
+      .set({ value: { enabled: true } })
+      .where(eq(settings.key, setting.key))
+      .returning();
+
+    if (
+      updatedUser === undefined ||
+      updatedDeal === undefined ||
+      updatedPublication === undefined ||
+      updatedSetting === undefined
+    ) {
+      throw new Error('updated_at update did not return a row');
+    }
+
+    expect(updatedUser.updatedAt.getTime()).toBeGreaterThan(user.updatedAt.getTime());
+    expect(updatedDeal.updatedAt.getTime()).toBeGreaterThan(deal.updatedAt.getTime());
+    expect(updatedPublication.updatedAt.getTime()).toBeGreaterThan(publication.updatedAt.getTime());
+    expect(updatedSetting.updatedAt.getTime()).toBeGreaterThan(setting.updatedAt.getTime());
   });
 
   it('keeps telegram user ids unique when set and allows several nulls', async () => {
