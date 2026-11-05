@@ -1,6 +1,6 @@
 # API specification
 
-The HTTP API is the Fastify process in `apps/server`. This note covers sign-in and deal drafts. Review actions and publishing are later tasks.
+The HTTP API is the Fastify process in `apps/server`. This note covers sign-in, deal drafts, and the admin review read API. Review mutation actions and publishing are later tasks.
 
 ## Authentication
 
@@ -74,3 +74,32 @@ Images accept one JPEG, PNG, or WebP file. The type is taken from magic bytes. T
 Creating a draft and uploading an image are each limited to 30 times per person per hour. Over the limit is `429` with `Retry-After`.
 
 `AMAZON_TAG` is required. `SHORT_LINK_HOSTS` defaults to `amzn.to,link.amazon`. `UPLOAD_DIR` defaults to `./uploads`. `MAX_UPLOAD_MB` defaults to 5.
+
+## Admin review
+
+Admin review routes require a signed-in session with the admin role (`owner`). Anonymous requests receive `401`. Non-admin (`clerk`) requests receive `403`. Responses never include password hashes, session tokens, or other private user fields.
+
+| Method | Path                   | Query / Params                                                                                                                    | Success                                                           |
+| ------ | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `GET`  | `/api/admin/deals`     | `status=pending_approval\|approved\|draft\|rejected\|published\|failed` (default `pending_approval`), `page`, `pageSize` (max 50) | `200` `{ "counts": { ... }, "items": [ ... ] }`                   |
+| `GET`  | `/api/admin/deals/:id` | `id` (deal UUID)                                                                                                                  | `200` Deal detail with preview, duplicate, repost, and image info |
+
+`GET /api/admin/deals`:
+
+- `status`: filters by status. Defaults to `pending_approval`. An unrecognized status is `400`.
+- `page`: 1-based page number (default 1).
+- `pageSize`: items per page (default 20, max 50).
+- `counts`: total count of deals for each status in the database (`pending_approval`, `approved`, `draft`, `rejected`, `published`, `failed`, `scheduled`).
+- `items`: array of deals. Each item: `id`, `title`, `price` (rupees), `oldPrice` (rupees, or null), `oldPriceVerified`, `hasImage`, `createdBy` (display name, falling back to username), `sourceNote`, `submittedAt`, `status`, `updatedAt`.
+- Ordering: `pending_approval` is ordered oldest first (`submittedAt` ascending, fallback `createdAt`); other statuses are ordered newest first (`updatedAt` descending, `createdAt` descending).
+
+`GET /api/admin/deals/:id`:
+
+- Returns all deal fields in whole rupees (not paise): `id`, `status`, `title`, `price`, `oldPrice`, `oldPriceVerified`, `highlights`, `offer`, `sourceNote`, `clerkNotes`, `reviewNote`, `rejectedReason`, `createdBy` (display name, falling back to username), `createdById`, `submittedAt`, `reviewedAt`, `createdAt`, `updatedAt` (the timestamp for concurrency control on later edits).
+- Product and link fields: `asin`, `productAsin`, `productUrl`, `taggedUrl`, `taggedLink`, `shortLink`, `shortUrl`.
+- Image info: `hasImage`, `image` (`{ url, mime }` or null), `imageUrl`, `imageMime`.
+- `duplicate`:
+  - `hasActiveDeal` / `activeDeal`: boolean, whether another active deal (`draft`, `pending_approval`, `approved`, `scheduled`) exists for the same product.
+  - `repost`: `{ allowed: boolean, reason: 'first_post' | 'price_lower' | 'price_not_lower' | 'previous_price_unknown' }` from `evaluateRepost`, comparing deal price with the latest published publication's `posted_price_paise`.
+  - `previousPostedPriceRupees` / `previousPostedPricePaise`.
+- `preview`: the exact caption built with `formatPost` from `@ss-deals/core` using the same inputs and options as the deal form preview (`verified: false`, `linkStyle: 'text'`), with `characterCount`, `warnings` (including forbidden-word warnings), and `forbiddenWords`.

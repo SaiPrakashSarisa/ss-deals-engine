@@ -147,3 +147,21 @@ My deals opens a modal with `formatPost` from `@ss-deals/core`, the stored field
 ### The edit page is the same form
 
 `/deals/[id]/edit` renders the deal form in edit mode. The product link is read-only. Save changes stays on the page. A deal the person cannot edit, including someone else's deal, shows "You can't edit this deal". The screen does not use role words. Clickable controls use a pointer cursor, and disabled controls use a not-allowed cursor.
+
+## 2026-11-05 — Admin review API (T6a)
+
+### Admin-only review endpoints
+
+The admin review API lives in `apps/server/src/modules/review`. All endpoints require a signed-in session with role `owner`; non-admins receive `403` with `You do not have access to this.` and unauthenticated requests receive `401`.
+
+### Status counts and queue ordering
+
+`GET /api/admin/deals` returns a `counts` map for all statuses alongside the paginated `items` for the requested filter (defaulting to `pending_approval`). The queue is ordered FIFO for `pending_approval` (oldest submitted deals first) so reviewers handle items in arrival order. Other tabs (draft, approved, rejected, published, failed, scheduled) are ordered newest first. Page size is capped at 50.
+
+### Shared post preview and duplicate inspection on detail
+
+`GET /api/admin/deals/:id` returns all deal fields in rupees, product ASIN, tagged and short links, image info, and creator visible name (falling back to username). It embeds:
+
+- `preview`: generated via `formatPost` using the same formatting rules as the deal form (`verified = false`, text link style), providing `characterCount`, forbidden-phrase warnings, and forbidden-words list.
+- `duplicate`: evaluates whether another active deal exists for the same product, and evaluates repost legality via `evaluateRepost` against the latest published post price.
+  No password hashes, sessions, or private user fields are returned.
