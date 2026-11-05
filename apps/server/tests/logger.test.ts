@@ -12,6 +12,10 @@ const config: AppConfig = {
   SESSION_COOKIE_NAME: 'ssd_session',
   COOKIE_SECURE: false,
   ALLOWED_ORIGIN: ['http://localhost:3001'],
+  AMAZON_TAG: 'example-21',
+  SHORT_LINK_HOSTS: ['amzn.to', 'link.amazon'],
+  UPLOAD_DIR: '/tmp/ss-uploads',
+  MAX_UPLOAD_MB: 5,
 };
 
 describe('logger', () => {
@@ -28,6 +32,7 @@ describe('logger', () => {
     });
     expect(serialized).not.toContain('supersecret');
     expect(serialized).not.toContain('appuser');
+    expect(serialized).not.toContain('example-21');
   });
 
   it('redacts authorization and token fields', () => {

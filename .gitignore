@@ -11,3 +11,4 @@ coverage/
 *.tsbuildinfo
 data/
 apps/quickpost/data/
+/uploads/

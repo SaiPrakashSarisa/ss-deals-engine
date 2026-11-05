@@ -33,6 +33,10 @@ services:
       DATABASE_URL: postgres://ssdeals:ssdeals@postgres:5432/ssdeals
       LOG_LEVEL: info
       TZ: Asia/Kolkata
+      AMAZON_TAG: ${AMAZON_TAG:?Set AMAZON_TAG in .env}
+      SHORT_LINK_HOSTS: ${SHORT_LINK_HOSTS:-amzn.to,link.amazon}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-5}
     ports:
       - '127.0.0.1:3000:3000'
     depends_on:
@@ -51,6 +55,8 @@ services:
       retries: 5
       start_period: 15s
     stop_grace_period: 20s
+    volumes:
+      - uploads_data:/app/uploads
     restart: unless-stopped
 
   worker:
@@ -65,6 +71,10 @@ services:
       DATABASE_URL: postgres://ssdeals:ssdeals@postgres:5432/ssdeals
       LOG_LEVEL: info
       TZ: Asia/Kolkata
+      AMAZON_TAG: ${AMAZON_TAG:?Set AMAZON_TAG in .env}
+      SHORT_LINK_HOSTS: ${SHORT_LINK_HOSTS:-amzn.to,link.amazon}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-5}
     depends_on:
       postgres:
         condition: service_healthy
@@ -139,3 +149,4 @@ services:
 volumes:
   postgres_data:
   quickpost_data:
+  uploads_data:

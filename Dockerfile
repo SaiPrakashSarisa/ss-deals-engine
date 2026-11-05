@@ -10,13 +10,18 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/server/package.json ./apps/server/package.json
-RUN pnpm install --frozen-lockfile
+COPY packages/core/package.json ./packages/core/package.json
+RUN pnpm install --frozen-lockfile --filter @ss-deals/server...
 
 FROM deps AS dev
 COPY tsconfig.base.json ./
+COPY packages/core/tsconfig.json ./packages/core/tsconfig.json
+COPY packages/core/src ./packages/core/src
 COPY apps/server/tsconfig.json ./apps/server/tsconfig.json
 COPY apps/server/src ./apps/server/src
 COPY apps/server/drizzle ./apps/server/drizzle
+RUN pnpm --filter @ss-deals/core build
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
 WORKDIR /app/apps/server
 USER node
 ENTRYPOINT ["dumb-init", "--"]
@@ -24,6 +29,8 @@ CMD ["node", "--import", "tsx", "--watch", "src/api/main.ts"]
 
 FROM deps AS build
 COPY tsconfig.base.json ./
+COPY packages/core/tsconfig.json ./packages/core/tsconfig.json
+COPY packages/core/src ./packages/core/src
 COPY apps/server/tsconfig.json ./apps/server/tsconfig.json
 COPY apps/server/src ./apps/server/src
 COPY apps/server/drizzle ./apps/server/drizzle
@@ -39,6 +46,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build --chown=node:node /out/ ./
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
 USER node
 ENV NODE_ENV=production
 EXPOSE 3000

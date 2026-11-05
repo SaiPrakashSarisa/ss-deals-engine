@@ -99,3 +99,51 @@ The desk has an owner and a clerk. Passwords use Node's built-in scrypt. Session
 ### Test guard routes stay out of production
 
 `GET /api/auth/test/*` is registered only when `NODE_ENV` is not `production`, so the role guards can be exercised without shipping them in the production process.
+
+## 2026-11-01 — Deal drafts
+
+### The product title stays on the product
+
+A draft also writes `products.title` when it creates or updates the Amazon product. That column is the latest known title. Deal screens do not read it.
+
+### Each deal keeps its own title
+
+`deals.title` is required and 1 to 200 characters. Creating or editing a draft writes that column. A later deal for the same ASIN does not change an earlier deal's title. The migration backfills existing rows from `products.title`, and uses `Untitled` only when that title is missing.
+
+### The form never fetches Amazon
+
+`POST /api/deals/check-url` and draft creation use `parseAmazonProductUrl` from `@ss-deals/core`. The server does not request the pasted URL or any Amazon page. The tagged link is built with `AMAZON_TAG`.
+
+### Clerk prices are not verified
+
+`old_price_verified` is always false on create and update from this form. The post preview therefore shows an old price as "Listed at". An admin can change the flag in a later task.
+
+### Each person lists only their own deals
+
+`GET /api/deals` is the caller's list, including for an admin. An admin can still `GET /api/deals/:id` and the image for any deal. A person who cannot read a deal gets 404. Only the creator can edit a draft.
+
+### Images stay behind the session
+
+Uploads are JPEG, PNG, or WebP, detected from magic bytes, re-encoded with `sharp` to at most 1600px, and stored under `UPLOAD_DIR`. They are returned only by `GET /api/deals/:id/image`. They are not public files. Replacing an image deletes the previous file.
+
+### Draft and upload limits
+
+Each person can create 30 drafts and upload 30 images per hour. Field errors are returned per field. An active deal for the same product, or a repost that is not a lower price, is rejected before a new draft is stored. A missing previous posted price is refused until an admin looks at it.
+
+## 2026-11-01 — Preview, edit, and withdraw
+
+### Editing a deal is not a second deal in the queue
+
+`POST /api/deals/check-url` accepts the deal being edited. When that deal is the signed-in person's active deal for the product, the check ignores it and returns `editing`. The form says "Editing your deal" and does not say the product is already in the queue. Another person's active deal is still a conflict. The lower-price rule for a product that was posted before still applies to the edited price, on the check and again on update and submit.
+
+### Leaving the review queue is a status move
+
+The creator can withdraw a deal from `pending_approval` back to `draft`. The move goes through the status module. Any other status is `409`. The action is `deal.withdraw`. The screen asks for confirmation first. If an admin has already changed the deal, the request is `409` and the list refreshes.
+
+### The preview uses the same post as the form
+
+My deals opens a modal with `formatPost` from `@ss-deals/core`, the stored fields, and the same options the form preview uses (`verified` false, text link). The image is the signed-in `GET /api/deals/:id/image`. The modal traps focus, closes on Escape and the backdrop, locks page scroll, and returns focus to the button that opened it.
+
+### The edit page is the same form
+
+`/deals/[id]/edit` renders the deal form in edit mode. The product link is read-only. Save changes stays on the page. A deal the person cannot edit, including someone else's deal, shows "You can't edit this deal". The screen does not use role words. Clickable controls use a pointer cursor, and disabled controls use a not-allowed cursor.
