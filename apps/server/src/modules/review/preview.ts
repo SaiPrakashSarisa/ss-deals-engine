@@ -26,6 +26,7 @@ export function buildDealPreview(
     offerText: string | null;
     shortLink: string | null;
     taggedUrl: string;
+    oldPriceVerified?: boolean;
   },
   shortLinkHosts: readonly string[],
 ): DealPreviewResult {
@@ -48,7 +49,10 @@ export function buildDealPreview(
     price: priceRupees,
     oldPrice:
       oldPriceRupees !== undefined && oldPriceRupees > priceRupees ? oldPriceRupees : undefined,
-    verified: false,
+    verified:
+      deal.oldPriceVerified === true &&
+      oldPriceRupees !== undefined &&
+      oldPriceRupees > priceRupees,
     highlights,
     offer,
     linkUrl,

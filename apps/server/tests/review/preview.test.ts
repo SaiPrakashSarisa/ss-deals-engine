@@ -26,10 +26,34 @@ describe('buildDealPreview', () => {
     expect(preview.html).toContain('Sony Wireless Headphones');
     expect(preview.html).toContain('₹4,999');
     expect(preview.html).toContain('Listed at ₹7,999');
+    expect(preview.html).not.toContain('% off');
     expect(preview.html).toContain('https://amzn.to/sony123');
     expect(preview.html).toContain('💳 Offer: Bank discount ₹500');
     expect(preview.warnings).toEqual([]);
     expect(preview.forbiddenWords).toEqual([]);
+  });
+
+  it('adds the percent-off line only when the old price is verified', () => {
+    const preview = buildDealPreview(
+      {
+        title: 'Sony Wireless Headphones',
+        pricePaise: 499900,
+        oldPricePaise: 799900,
+        oldPriceVerified: true,
+        highlights: [],
+        offerText: null,
+        shortLink: null,
+        taggedUrl: 'https://www.amazon.in/dp/B000TEST12?tag=example-21',
+      },
+      shortLinkHosts,
+    );
+
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) {
+      return;
+    }
+    expect(preview.html).toContain('% off');
+    expect(preview.html).not.toContain('Listed at');
   });
 
   it('detects forbidden words and surfaces warnings', () => {

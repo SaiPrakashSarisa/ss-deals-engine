@@ -1,6 +1,6 @@
 # API specification
 
-The HTTP API is the Fastify process in `apps/server`. This note covers sign-in, deal drafts, and the admin review read API. Review mutation actions and publishing are later tasks.
+The HTTP API is the Fastify process in `apps/server`. This note covers sign-in, deal drafts, and admin review. Publishing is a later task.
 
 ## Authentication
 
@@ -102,4 +102,24 @@ Admin review routes require a signed-in session with the admin role (`owner`). A
   - `hasActiveDeal` / `activeDeal`: boolean, whether another active deal (`draft`, `pending_approval`, `approved`, `scheduled`) exists for the same product.
   - `repost`: `{ allowed: boolean, reason: 'first_post' | 'price_lower' | 'price_not_lower' | 'previous_price_unknown' }` from `evaluateRepost`, comparing deal price with the latest published publication's `posted_price_paise`.
   - `previousPostedPriceRupees` / `previousPostedPricePaise`.
-- `preview`: the exact caption built with `formatPost` from `@ss-deals/core` using the same inputs and options as the deal form preview (`verified: false`, `linkStyle: 'text'`), with `characterCount`, `warnings` (including forbidden-word warnings), and `forbiddenWords`.
+- `preview`: the caption from `buildDealPreview` in `apps/server/src/modules/review/preview.ts`. It calls `formatPost` from `@ss-deals/core` with the same inputs as the deal form (`linkStyle: 'text'`, short link only when the host is allowed). `verified` is true only when `oldPriceVerified` is true and the old price is higher than the price, which adds the percent-off line. The result includes `html`, `caption` (the same text), `characterCount`, `warnings`, and `forbiddenWords`.
+- `previewEnabled` is included so a later edit can send it back.
+
+Edits and decisions are allowed only for an admin. Each write sends the `updatedAt` from the detail. If that value is stale, the response is `409` with `This deal changed. Reload to see the latest version.` A state-changing request also needs an allowed `Origin`.
+
+| Method   | Path                             | Body                                                                                                         | Success                                       |
+| -------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------- |
+| `PATCH`  | `/api/admin/deals/:id`           | Title, price, old price, offer, highlights, short link, source note, preview, verified flag, and `updatedAt` | `200` the updated detail                      |
+| `POST`   | `/api/admin/deals/:id/image`     | Multipart image plus an `updatedAt` field                                                                    | `200` the updated detail                      |
+| `DELETE` | `/api/admin/deals/:id/image`     | `{ "updatedAt" }`                                                                                            | `200` the updated detail                      |
+| `POST`   | `/api/admin/deals/:id/approve`   | `{ "updatedAt" }`                                                                                            | `200` status `approved`                       |
+| `POST`   | `/api/admin/deals/:id/send-back` | `{ "updatedAt", "note" }` note required, max 300                                                             | `200` status `draft`, `reviewNote` set        |
+| `POST`   | `/api/admin/deals/:id/reject`    | `{ "updatedAt", "reason" }` reason required, max 300                                                         | `200` status `rejected`, `rejectedReason` set |
+| `POST`   | `/api/admin/deals/:id/reopen`    | `{ "updatedAt" }`                                                                                            | `200` status `pending_approval`               |
+| `POST`   | `/api/admin/deals/:id/unapprove` | `{ "updatedAt" }`                                                                                            | `200` status `pending_approval`               |
+
+`PATCH` and the image routes accept a deal only while it is `pending_approval` or `approved`. Any other status is `409`. Field limits match the person-facing form, including an https short link on `SHORT_LINK_HOSTS`. `oldPriceVerified` is stored true only when an old price is present and higher than the price. Clearing the old price forces the flag false. A changed price inserts `price_snapshots` with origin `owner_entered`.
+
+Approve moves `pending_approval` to `approved`, checks the active-deal rule and `evaluateRepost` again, and stores one current `content_drafts` row (`source` `template`, `body_html` the shared caption). Send back moves `pending_approval` to `draft` and saves `review_note`. Reject moves `pending_approval` or `approved` to `rejected`. Reopen moves `rejected` to `pending_approval` and clears `rejected_reason`. Unapprove moves `approved` to `pending_approval`. Any other transition is `409`. If the creator has withdrawn the deal, the action is `409` with `This deal was withdrawn or changed.`
+
+Editing an approved deal writes a new current content draft so the stored caption matches the fields. Every change writes `audit_log`. The audit details do not include the note or the reason text. Publishing and scheduling are not in this API.

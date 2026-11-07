@@ -51,6 +51,7 @@ export type AdminDealDetail = {
   taggedLink: string;
   shortLink: string | null;
   shortUrl: string | null;
+  previewEnabled: boolean;
   hasImage: boolean;
   image: { url: string; mime: string } | null;
   imageUrl: string | null;
@@ -173,6 +174,7 @@ export async function getAdminDeal(
       oldPriceVerified: deals.oldPriceVerified,
       highlights: deals.highlights,
       offerText: deals.offerText,
+      previewEnabled: deals.previewEnabled,
       sourceNote: deals.sourceNote,
       clerkNotes: deals.clerkNotes,
       reviewNote: deals.reviewNote,
@@ -241,6 +243,7 @@ export async function getAdminDeal(
       offerText: row.offerText,
       shortLink: row.shortUrl,
       taggedUrl: row.affiliateUrl,
+      oldPriceVerified: row.oldPriceVerified,
     },
     shortLinkHosts,
   );
@@ -274,6 +277,7 @@ export async function getAdminDeal(
     taggedLink: row.affiliateUrl,
     shortLink: row.shortUrl,
     shortUrl: row.shortUrl,
+    previewEnabled: row.previewEnabled,
     hasImage,
     image: hasImage ? { url: imageUrl!, mime: row.imageMime! } : null,
     imageUrl,

@@ -162,6 +162,16 @@ The admin review API lives in `apps/server/src/modules/review`. All endpoints re
 
 `GET /api/admin/deals/:id` returns all deal fields in rupees, product ASIN, tagged and short links, image info, and creator visible name (falling back to username). It embeds:
 
-- `preview`: generated via `formatPost` using the same formatting rules as the deal form (`verified = false`, text link style), providing `characterCount`, forbidden-phrase warnings, and forbidden-words list.
+- `preview`: generated via `buildDealPreview`, which calls `formatPost` with the deal form's text link. The percent-off line is included only when the old price is verified.
 - `duplicate`: evaluates whether another active deal exists for the same product, and evaluates repost legality via `evaluateRepost` against the latest published post price.
   No password hashes, sessions, or private user fields are returned.
+
+## 2026-11-07 — Admin review decisions
+
+### Edits keep the same limits and a fresh timestamp
+
+An admin can change a deal only while it is waiting for review or approved. The request must send the `updatedAt` from the detail. The row is locked, the timestamp is compared in the application, and a mismatch is `409` with "This deal changed. Reload to see the latest version." Clearing the old price forces `old_price_verified` false. A new price writes `price_snapshots` with origin `owner_entered`.
+
+### Decisions go through the status map
+
+Approve, send back, reject, reopen, and unapprove call `assertTransition`. Unapprove is the added move from `approved` back to `pending_approval`. Approve re-checks the active-deal rule and `evaluateRepost`, then stores the shared caption as the only current content draft. A later edit of an approved deal writes the next version. A withdrawn deal answers `409` with "This deal was withdrawn or changed." Publish and schedule are not in this step.

@@ -13,14 +13,23 @@ import { buildApp } from '../../src/api/app.js';
 import * as schema from '../../src/db/schema/index.js';
 import {
   affiliateLinks,
+  auditLog,
   channels,
   contentDrafts,
   deals,
+  priceSnapshots,
   products,
   publications,
   users,
 } from '../../src/db/schema/index.js';
 import { FORBIDDEN_ERROR, SIGN_IN_REQUIRED } from '../../src/modules/auth/messages.js';
+import { NOT_EDITABLE, repostRefusalMessage } from '../../src/modules/deals/messages.js';
+import {
+  NOTE_REQUIRED,
+  REASON_REQUIRED,
+  STALE_DEAL,
+  WITHDRAWN_DEAL,
+} from '../../src/modules/review/messages.js';
 import { hashPassword } from '../../src/modules/auth/password.js';
 import type { DealStatus } from '../../src/modules/deals/status.js';
 
@@ -792,5 +801,546 @@ describe.skipIf(databaseUrl === '')('admin review http api', () => {
     expect(adminDetail.statusCode).toBe(200);
     expect(adminDetail.json().hasImage).toBe(true);
     expect(adminDetail.json().image.url).toBe(`/api/deals/${deal.id}/image`);
+  });
+
+  async function adminDetail(cookie: string, id: string) {
+    const response = await server().inject({
+      method: 'GET',
+      url: `/api/admin/deals/${id}`,
+      headers: { cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json();
+  }
+
+  function editPayload(
+    deal: {
+      title: string;
+      price: number;
+      oldPrice: number | null;
+      offer: string | null;
+      highlights: string[];
+      shortLink: string | null;
+      sourceNote: string | null;
+      previewEnabled: boolean;
+      oldPriceVerified: boolean;
+      updatedAt: string;
+    },
+    overrides: Record<string, unknown> = {},
+  ) {
+    return {
+      title: deal.title,
+      price: deal.price,
+      oldPrice: deal.oldPrice,
+      offer: deal.offer,
+      highlights: deal.highlights,
+      shortLink: deal.shortLink,
+      sourceNote: deal.sourceNote,
+      previewEnabled: deal.previewEnabled,
+      oldPriceVerified: deal.oldPriceVerified,
+      updatedAt: deal.updatedAt,
+      ...overrides,
+    };
+  }
+
+  function writeHeaders(cookie: string, contentType?: string) {
+    return {
+      cookie,
+      origin,
+      ...(contentType === undefined ? {} : { 'content-type': contentType }),
+    };
+  }
+
+  function adminImageBody(file: Buffer, filename: string, type: string, updatedAt: string) {
+    const boundary = '----ssdealsadmin';
+    return {
+      payload: Buffer.concat([
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="updatedAt"\r\n\r\n${updatedAt}\r\n` +
+            `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${filename}"\r\nContent-Type: ${type}\r\n\r\n`,
+        ),
+        file,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]),
+      contentType: `multipart/form-data; boundary=${boundary}`,
+    };
+  }
+
+  it('rejects a stale save, a withdrawn deal, and an edit outside review', async () => {
+    const adminCookie = await login('ada');
+    const graceCookie = await login('grace');
+    const { deal } = await seedDeal({
+      asin: 'B0STALE001',
+      createdBy: graceId,
+      status: 'pending_approval',
+      title: 'Stale kettle',
+      pricePaise: 100000,
+      oldPricePaise: 150000,
+    });
+    const current = await adminDetail(adminCookie, deal.id);
+
+    const stale = await server().inject({
+      method: 'PATCH',
+      url: `/api/admin/deals/${deal.id}`,
+      headers: writeHeaders(adminCookie),
+      payload: editPayload(current, { updatedAt: '2020-01-01T00:00:00.000Z' }),
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toEqual({ error: STALE_DEAL });
+
+    const withdrawn = await server().inject({
+      method: 'POST',
+      url: `/api/deals/${deal.id}/withdraw`,
+      headers: writeHeaders(graceCookie),
+    });
+    expect(withdrawn.statusCode).toBe(200);
+    const afterWithdraw = await server().inject({
+      method: 'PATCH',
+      url: `/api/admin/deals/${deal.id}`,
+      headers: writeHeaders(adminCookie),
+      payload: editPayload(current, { title: 'Changed after withdraw' }),
+    });
+    expect(afterWithdraw.statusCode).toBe(409);
+    expect(afterWithdraw.json()).toEqual({ error: STALE_DEAL });
+
+    const { deal: draft } = await seedDeal({
+      asin: 'B0DRAFT999',
+      createdBy: graceId,
+      status: 'draft',
+      title: 'Still a draft',
+      pricePaise: 50000,
+    });
+    const draftDetail = await adminDetail(adminCookie, draft.id);
+    const locked = await server().inject({
+      method: 'PATCH',
+      url: `/api/admin/deals/${draft.id}`,
+      headers: writeHeaders(adminCookie),
+      payload: editPayload(draftDetail, { title: 'Nope' }),
+    });
+    expect(locked.statusCode).toBe(409);
+    expect(locked.json()).toEqual({ error: NOT_EDITABLE });
+  });
+
+  it('edits review fields, forces verified off without an old price, and snapshots a new price', async () => {
+    const adminCookie = await login('ada');
+    const clerkCookie = await login('grace');
+    const { deal } = await seedDeal({
+      asin: 'B0EDIT0001',
+      createdBy: graceId,
+      status: 'pending_approval',
+      title: 'Edit me',
+      pricePaise: 100000,
+      oldPricePaise: 180000,
+      offerText: 'Bank offer',
+      highlights: ['Steel'],
+      sourceNote: 'Group A',
+    });
+    const current = await adminDetail(adminCookie, deal.id);
+
+    const forbidden = await server().inject({
+      method: 'PATCH',
+      url: `/api/admin/deals/${deal.id}`,
+      headers: writeHeaders(clerkCookie),
+      payload: editPayload(current, { title: 'Stolen' }),
+    });
+    expect(forbidden.statusCode).toBe(403);
+    expect(forbidden.json()).toEqual({ error: FORBIDDEN_ERROR });
+
+    const invalid = await server().inject({
+      method: 'PATCH',
+      url: `/api/admin/deals/${deal.id}`,
+      headers: writeHeaders(adminCookie),
+      payload: editPayload(current, {
+        title: '',
+        highlights: ['x'.repeat(81)],
+      }),
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().fields.title).toBeTruthy();
+    expect(invalid.json().fields.highlights).toBeTruthy();
+
+    const badLink = await server().inject({
+      method: 'PATCH',
+      url: `/api/admin/deals/${deal.id}`,
+      headers: writeHeaders(adminCookie),
+      payload: editPayload(current, { shortLink: 'http://evil.example/nope' }),
+    });
+    expect(badLink.statusCode).toBe(400);
+    expect(badLink.json().fields.shortLink).toBeTruthy();
+
+    const verified = await server().inject({
+      method: 'PATCH',
+      url: `/api/admin/deals/${deal.id}`,
+      headers: writeHeaders(adminCookie),
+      payload: editPayload(current, {
+        title: 'Edited kettle',
+        price: 900,
+        oldPrice: 1800,
+        oldPriceVerified: true,
+        offer: 'Extra year',
+        highlights: ['Steel', 'Quiet'],
+        shortLink: 'https://amzn.to/edited1',
+        sourceNote: 'Checked',
+        previewEnabled: false,
+      }),
+    });
+    expect(verified.statusCode).toBe(200);
+    const saved = verified.json();
+    expect(saved).toMatchObject({
+      title: 'Edited kettle',
+      price: 900,
+      oldPrice: 1800,
+      oldPriceVerified: true,
+      offer: 'Extra year',
+      highlights: ['Steel', 'Quiet'],
+      shortLink: 'https://amzn.to/edited1',
+      sourceNote: 'Checked',
+      previewEnabled: false,
+    });
+    expect(saved.preview.html).toContain('% off');
+    expect(saved.passwordHash).toBeUndefined();
+
+    const snapshots = await database()
+      .select()
+      .from(priceSnapshots)
+      .where(eq(priceSnapshots.dealId, deal.id));
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toMatchObject({ origin: 'owner_entered', pricePaise: 90000 });
+
+    const cleared = await server().inject({
+      method: 'PATCH',
+      url: `/api/admin/deals/${deal.id}`,
+      headers: writeHeaders(adminCookie),
+      payload: editPayload(saved, { oldPrice: null, oldPriceVerified: true, price: 900 }),
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json()).toMatchObject({ oldPrice: null, oldPriceVerified: false, price: 900 });
+
+    const stillOne = await database()
+      .select()
+      .from(priceSnapshots)
+      .where(eq(priceSnapshots.dealId, deal.id));
+    expect(stillOne).toHaveLength(1);
+
+    const audits = await database()
+      .select({ action: auditLog.action })
+      .from(auditLog)
+      .where(eq(auditLog.entityId, deal.id));
+    expect(audits.map((row) => row.action)).toEqual(['deal.admin_update', 'deal.admin_update']);
+  });
+
+  it('lets an admin replace and remove an image on a deal in review', async () => {
+    const adminCookie = await login('ada');
+    const { deal } = await seedDeal({
+      asin: 'B0IMGADMIN',
+      createdBy: graceId,
+      status: 'pending_approval',
+      title: 'Image review',
+      pricePaise: 120000,
+    });
+    const current = await adminDetail(adminCookie, deal.id);
+    const first = adminImageBody(await png(20), 'one.png', 'image/png', current.updatedAt);
+    const uploaded = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/image`,
+      headers: writeHeaders(adminCookie, first.contentType),
+      payload: first.payload,
+    });
+    expect(uploaded.statusCode).toBe(200);
+    expect(uploaded.json().hasImage).toBe(true);
+
+    const second = adminImageBody(await png(80), 'two.png', 'image/png', uploaded.json().updatedAt);
+    const replaced = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/image`,
+      headers: writeHeaders(adminCookie, second.contentType),
+      payload: second.payload,
+    });
+    expect(replaced.statusCode).toBe(200);
+    expect(replaced.json().image.mime).toBe('image/png');
+
+    const removed = await server().inject({
+      method: 'DELETE',
+      url: `/api/admin/deals/${deal.id}/image`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: replaced.json().updatedAt },
+    });
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json().hasImage).toBe(false);
+
+    const audits = await database()
+      .select({ action: auditLog.action })
+      .from(auditLog)
+      .where(eq(auditLog.entityId, deal.id));
+    expect(audits.map((row) => row.action)).toEqual([
+      'deal.admin_image_upload',
+      'deal.admin_image_upload',
+      'deal.admin_image_remove',
+    ]);
+  });
+
+  it('approves a waiting deal into one current caption and blocks a repost that is not lower', async () => {
+    const adminCookie = await login('ada');
+    const clerkCookie = await login('grace');
+    const { deal } = await seedDeal({
+      asin: 'B0APPRV001',
+      createdBy: graceId,
+      status: 'pending_approval',
+      title: 'Ready kettle',
+      pricePaise: 149900,
+      oldPricePaise: 199900,
+      highlights: ['1.5 litre'],
+    });
+    const current = await adminDetail(adminCookie, deal.id);
+
+    const missing = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/approve`,
+      headers: writeHeaders(clerkCookie),
+      payload: { updatedAt: current.updatedAt },
+    });
+    expect(missing.statusCode).toBe(403);
+
+    const stale = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/approve`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: '2020-01-01T00:00:00.000Z' },
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toEqual({ error: STALE_DEAL });
+
+    const approved = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/approve`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: current.updatedAt },
+    });
+    expect(approved.statusCode).toBe(200);
+    expect(approved.json().status).toBe('approved');
+    expect(approved.json().preview.html).toContain('Ready kettle');
+
+    const drafts = await database()
+      .select()
+      .from(contentDrafts)
+      .where(eq(contentDrafts.dealId, deal.id));
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({
+      isCurrent: true,
+      source: 'template',
+      version: 1,
+      bodyHtml: approved.json().preview.html,
+    });
+
+    const again = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/approve`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: approved.json().updatedAt },
+    });
+    expect(again.statusCode).toBe(409);
+
+    await seedPublished('B0REPOST1', 100000, graceId);
+    const { deal: higher } = await seedDeal({
+      asin: 'B0REPOST1',
+      createdBy: graceId,
+      status: 'pending_approval',
+      title: 'Too expensive',
+      pricePaise: 150000,
+    });
+    const higherDetail = await adminDetail(adminCookie, higher.id);
+    const blocked = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${higher.id}/approve`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: higherDetail.updatedAt },
+    });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json()).toEqual({ error: repostRefusalMessage('price_not_lower') });
+  });
+
+  it('sends a deal back with a note the creator can read', async () => {
+    const adminCookie = await login('ada');
+    const graceCookie = await login('grace');
+    const { deal } = await seedDeal({
+      asin: 'B0BACK0001',
+      createdBy: graceId,
+      status: 'pending_approval',
+      title: 'Needs work',
+      pricePaise: 80000,
+    });
+    const current = await adminDetail(adminCookie, deal.id);
+
+    const empty = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/send-back`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: current.updatedAt, note: '   ' },
+    });
+    expect(empty.statusCode).toBe(400);
+    expect(empty.json()).toEqual({ error: NOTE_REQUIRED });
+
+    const sent = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/send-back`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: current.updatedAt, note: 'Please add the size.' },
+    });
+    expect(sent.statusCode).toBe(200);
+    expect(sent.json()).toMatchObject({
+      status: 'draft',
+      reviewNote: 'Please add the size.',
+    });
+
+    const mine = await server().inject({
+      method: 'GET',
+      url: `/api/deals/${deal.id}`,
+      headers: { cookie: graceCookie },
+    });
+    expect(mine.statusCode).toBe(200);
+    expect(mine.json().deal.reviewNote).toBe('Please add the size.');
+    expect(mine.json().deal.status).toBe('draft');
+  });
+
+  it('rejects, reopens, and unapproves, and reports a withdraw race', async () => {
+    const adminCookie = await login('ada');
+    const graceCookie = await login('grace');
+    const { deal } = await seedDeal({
+      asin: 'B0REJACT01',
+      createdBy: graceId,
+      status: 'pending_approval',
+      title: 'Maybe not',
+      pricePaise: 70000,
+    });
+    const current = await adminDetail(adminCookie, deal.id);
+
+    const empty = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/reject`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: current.updatedAt },
+    });
+    expect(empty.statusCode).toBe(400);
+    expect(empty.json()).toEqual({ error: REASON_REQUIRED });
+
+    const rejected = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/reject`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: current.updatedAt, reason: 'Wrong product.' },
+    });
+    expect(rejected.statusCode).toBe(200);
+    expect(rejected.json()).toMatchObject({
+      status: 'rejected',
+      rejectedReason: 'Wrong product.',
+    });
+
+    const reopened = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/reopen`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: rejected.json().updatedAt },
+    });
+    expect(reopened.statusCode).toBe(200);
+    expect(reopened.json()).toMatchObject({
+      status: 'pending_approval',
+      rejectedReason: null,
+    });
+
+    const approved = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/approve`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: reopened.json().updatedAt },
+    });
+    expect(approved.statusCode).toBe(200);
+
+    const edited = await server().inject({
+      method: 'PATCH',
+      url: `/api/admin/deals/${deal.id}`,
+      headers: writeHeaders(adminCookie),
+      payload: editPayload(approved.json(), { title: 'Caption refresh' }),
+    });
+    expect(edited.statusCode).toBe(200);
+    const versions = await database()
+      .select({
+        version: contentDrafts.version,
+        isCurrent: contentDrafts.isCurrent,
+        bodyHtml: contentDrafts.bodyHtml,
+      })
+      .from(contentDrafts)
+      .where(eq(contentDrafts.dealId, deal.id));
+    expect(versions).toHaveLength(2);
+    expect(versions.find((row) => row.isCurrent)?.bodyHtml).toContain('Caption refresh');
+    expect(versions.filter((row) => row.isCurrent)).toHaveLength(1);
+
+    const unapproved = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/unapprove`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: edited.json().updatedAt },
+    });
+    expect(unapproved.statusCode).toBe(200);
+    expect(unapproved.json().status).toBe('pending_approval');
+
+    const reopenedTwice = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${deal.id}/reopen`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: unapproved.json().updatedAt },
+    });
+    expect(reopenedTwice.statusCode).toBe(409);
+
+    const fromApproved = await seedDeal({
+      asin: 'B0REJACT02',
+      createdBy: graceId,
+      status: 'approved',
+      title: 'Already approved',
+      pricePaise: 60000,
+    });
+    const approvedDetail = await adminDetail(adminCookie, fromApproved.deal.id);
+    const rejectApproved = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${fromApproved.deal.id}/reject`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: approvedDetail.updatedAt, reason: 'Changed our mind.' },
+    });
+    expect(rejectApproved.statusCode).toBe(200);
+    expect(rejectApproved.json().status).toBe('rejected');
+
+    const { deal: racing } = await seedDeal({
+      asin: 'B0RACE0001',
+      createdBy: graceId,
+      status: 'pending_approval',
+      title: 'Race',
+      pricePaise: 50000,
+    });
+    const raced = await adminDetail(adminCookie, racing.id);
+    const withdraw = await server().inject({
+      method: 'POST',
+      url: `/api/deals/${racing.id}/withdraw`,
+      headers: writeHeaders(graceCookie),
+    });
+    expect(withdraw.statusCode).toBe(200);
+    const lost = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${racing.id}/approve`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: raced.updatedAt },
+    });
+    expect(lost.statusCode).toBe(409);
+    expect(lost.json()).toEqual({ error: WITHDRAWN_DEAL });
+
+    const audits = await database()
+      .select({ action: auditLog.action })
+      .from(auditLog)
+      .where(eq(auditLog.entityId, deal.id));
+    expect(audits.map((row) => row.action)).toEqual([
+      'deal.reject',
+      'deal.reopen',
+      'deal.approve',
+      'deal.admin_update',
+      'deal.unapprove',
+    ]);
   });
 });

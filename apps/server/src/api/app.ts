@@ -74,6 +74,8 @@ export function buildApp(options: {
       cookieSecure: options.auth.cookieSecure,
       shortLinkHosts: options.review?.shortLinkHosts ??
         options.deals?.shortLinkHosts ?? ['amzn.to', 'link.amazon'],
+      uploadDir: options.deals?.uploadDir ?? '',
+      maxUploadBytes: options.deals?.maxUploadBytes ?? 5 * 1024 * 1024,
     });
   }
 
