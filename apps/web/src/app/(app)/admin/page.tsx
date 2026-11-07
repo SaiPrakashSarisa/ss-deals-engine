@@ -1,18 +1,31 @@
 import { forbidden } from 'next/navigation';
+import { AdminQueue } from '../../../components/admin/AdminQueue';
 import { getCurrentUser } from '../../../lib/session';
 
 export const dynamic = 'force-dynamic';
 
-export default async function AdminPage() {
+const known = new Set([
+  'pending_approval',
+  'approved',
+  'draft',
+  'rejected',
+  'published',
+  'failed',
+  'scheduled',
+]);
+
+export default async function AdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string }>;
+}) {
   const user = await getCurrentUser();
   if (user === null || user.role !== 'owner') {
     forbidden();
   }
+  const query = await searchParams;
+  const status =
+    query.status !== undefined && known.has(query.status) ? query.status : 'pending_approval';
 
-  return (
-    <section className="rounded-2xl border border-line bg-white p-6">
-      <h1 className="text-3xl font-bold">Review queue</h1>
-      <p className="mt-4 text-xl">Review queue coming in T6.</p>
-    </section>
-  );
+  return <AdminQueue status={status} />;
 }
