@@ -217,6 +217,7 @@ describe('DealForm', () => {
               hasImage: true,
               status: 'draft',
               editable: true,
+              updatedAt: '2026-11-07T10:00:00.000Z',
             },
           });
         }
@@ -243,7 +244,7 @@ describe('DealForm', () => {
     expect(await screen.findByText('Editing your deal')).toBeTruthy();
     expect(screen.queryByText('Already in the queue')).toBeNull();
     expect(screen.getByRole('img', { name: 'Deal image' }).getAttribute('src')).toBe(
-      '/api/deals/deal-1/image',
+      `/api/deals/deal-1/image?v=${encodeURIComponent('2026-11-07T10:00:00.000Z')}`,
     );
     expect(screen.getByRole('button', { name: 'Replace' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy();

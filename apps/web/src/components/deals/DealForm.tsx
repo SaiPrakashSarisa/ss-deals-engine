@@ -9,6 +9,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
+import { dealImageSrc } from '../deal-image';
 import { follow } from '../../lib/navigate';
 import { bannerForCheck, checkAllowsSave, type UrlBanner } from './banner';
 import { formatDealPreview } from './preview';
@@ -31,6 +32,7 @@ type LoadedDeal = {
   hasImage: boolean;
   status: string;
   editable?: boolean;
+  updatedAt?: string | null;
 };
 
 type ErrorBody = { error?: unknown; fields?: Record<string, string> };
@@ -77,6 +79,7 @@ export function DealForm({
   const [blocked, setBlocked] = useState(mode === 'edit' && initialDealId === undefined);
   const [file, setFile] = useState<File | null>(null);
   const [existingImage, setExistingImage] = useState(false);
+  const [imageUpdatedAt, setImageUpdatedAt] = useState<string | null>(null);
   const [removeExisting, setRemoveExisting] = useState(false);
   const [localPreview, setLocalPreview] = useState<string | undefined>();
   const urlRef = useRef('');
@@ -168,6 +171,7 @@ export function DealForm({
         setNotes(deal.clerkNotes ?? '');
         setTaggedUrl(deal.taggedUrl);
         setExistingImage(deal.hasImage);
+        setImageUpdatedAt(deal.updatedAt ?? null);
         setLocked(deal.status !== 'draft');
         urlRef.current = deal.productUrl;
         priceRef.current = nextPrice;
@@ -427,7 +431,7 @@ export function DealForm({
   const imageSrc =
     localPreview ??
     (existingImage && !removeExisting && dealId !== undefined
-      ? `/api/deals/${dealId}/image`
+      ? dealImageSrc(dealId, imageUpdatedAt)
       : undefined);
   const canSave = checkAllowsSave(code) && pending === undefined && !loading && !locked;
   const toneClass = {

@@ -1,8 +1,10 @@
 'use client';
 
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { dealImageSrc } from '../deal-image';
 import { formatPaise } from '../../lib/money';
+import { reviewExitMessage } from './notices';
 import { timeAgo } from './time-ago';
 import type { AdminListItem } from './types';
 
@@ -29,12 +31,29 @@ type QueueBody = {
 };
 
 export function AdminQueue({ status, now = Date.now() }: { status: string; now?: number }) {
-  const requested = useSearchParams().get('status');
+  const params = useSearchParams();
+  const query = params.toString();
+  const router = useRouter();
+  const requested = params.get('status');
   const active = queueStatus(requested, status);
+  const [flash, setFlash] = useState<string | undefined>();
   const [state, setState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [items, setItems] = useState<AdminListItem[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    const current = new URLSearchParams(query);
+    const message = reviewExitMessage(current.get('notice'), current.get('name'));
+    if (message === undefined) {
+      return;
+    }
+    setFlash(message);
+    current.delete('notice');
+    current.delete('name');
+    const next = current.toString();
+    router.replace(next.length === 0 ? '/admin' : `/admin?${next}`);
+  }, [query, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +86,11 @@ export function AdminQueue({ status, now = Date.now() }: { status: string; now?:
   return (
     <section>
       <h1 className="text-3xl font-bold">Review queue</h1>
+      {flash !== undefined ? (
+        <p className="mt-3 text-lg" role="status">
+          {flash}
+        </p>
+      ) : null}
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {summary.map((card) => (
           <a
@@ -124,7 +148,7 @@ export function AdminQueue({ status, now = Date.now() }: { status: string; now?:
               <div className="flex flex-col gap-4 sm:flex-row">
                 {deal.hasImage ? (
                   <img
-                    src={`/api/deals/${deal.id}/image`}
+                    src={dealImageSrc(deal.id, deal.updatedAt)}
                     alt=""
                     className="h-28 w-full rounded-xl object-cover sm:w-28"
                   />

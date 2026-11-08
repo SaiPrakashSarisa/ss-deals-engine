@@ -179,3 +179,7 @@ Approve, send back, reject, reopen, and unapprove call `assertTransition`. Unapp
 ## 2026-11-08 — Sent back is a draft with a note
 
 `GET /api/admin/deals?status=sent_back` lists deals whose status is `draft` and whose `review_note` is set. `counts.sent_back` uses that same rule. A draft that was never submitted, and a draft the creator withdrew before review, stay out of that count and out of the admin list. Sending the deal for review again moves it to `pending_approval`, so it leaves the count even if the note is still stored.
+
+## 2026-11-08 — Image addresses and review exits
+
+Deal image URLs include the deal's `updatedAt` so a browser cannot keep a replaced file under the same address. `GET /api/deals/:id/image` sends `Cache-Control: private, no-cache`. After a successful send back or reject, the review page goes to `/admin` with a one-time notice (`Sent back to <name>.` or `Rejected.`) that the queue shows and then removes from the address. Approve, reopen, and unapprove stay on the deal and keep the `updatedAt` from the response.

@@ -1,9 +1,12 @@
 'use client';
 
 import { parsePriceInput } from '@ss-deals/core';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { dealImageSrc } from '../deal-image';
 import { validateDealForm } from '../deals/validate';
 import { Modal } from '../deals/Modal';
+import { reviewExitHref } from './notices';
 import { STALE_DEAL, type AdminDeal } from './types';
 
 const fieldClass =
@@ -77,6 +80,8 @@ async function readError(
 }
 
 export function ReviewScreen({ initialDeal }: { initialDeal: AdminDeal }) {
+  const router = useRouter();
+  const busy = useRef(false);
   const [deal, setDeal] = useState(initialDeal);
   const [fields, setFields] = useState<Fields>(() => fieldsFrom(initialDeal));
   const [saved, setSaved] = useState(() => snapshot(fieldsFrom(initialDeal)));
@@ -201,6 +206,10 @@ export function ReviewScreen({ initialDeal }: { initialDeal: AdminDeal }) {
     if (Object.keys(errors).length > 0) {
       return;
     }
+    if (busy.current) {
+      return;
+    }
+    busy.current = true;
     setPending('save');
     setFormError(undefined);
     try {
@@ -237,11 +246,16 @@ export function ReviewScreen({ initialDeal }: { initialDeal: AdminDeal }) {
     } catch {
       setFormError('The deal could not be saved.');
     } finally {
+      busy.current = false;
       setPending(undefined);
     }
   }
 
   async function act(path: string, extra: Record<string, string> = {}): Promise<void> {
+    if (busy.current) {
+      return;
+    }
+    busy.current = true;
     setPending(path);
     setFormError(undefined);
     try {
@@ -257,24 +271,41 @@ export function ReviewScreen({ initialDeal }: { initialDeal: AdminDeal }) {
         return;
       }
       if (!response.ok) {
-        setModalError(body.error ?? 'That action could not be completed.');
+        const message = body.error ?? 'That action could not be completed.';
+        setModalError(message);
         if (modal === undefined) {
-          setFormError(body.error ?? 'That action could not be completed.');
+          setFormError(message);
         }
         return;
       }
-      applyDeal(body as unknown as AdminDeal, false);
+      const next = body as unknown as AdminDeal;
+      if (path === 'send-back') {
+        setModal(undefined);
+        router.push(reviewExitHref('sent_back', deal.createdBy));
+        return;
+      }
+      if (path === 'reject') {
+        setModal(undefined);
+        router.push(reviewExitHref('rejected'));
+        return;
+      }
+      applyDeal(next, false);
       setModal(undefined);
       setModalText('');
-      setNotice('Changes saved.');
+      setNotice(path === 'approve' ? 'Approved.' : undefined);
     } catch {
       setFormError('That action could not be completed.');
     } finally {
+      busy.current = false;
       setPending(undefined);
     }
   }
 
   async function uploadImage(file: File): Promise<void> {
+    if (busy.current) {
+      return;
+    }
+    busy.current = true;
     setPending('image');
     setFormError(undefined);
     try {
@@ -299,12 +330,18 @@ export function ReviewScreen({ initialDeal }: { initialDeal: AdminDeal }) {
     } catch {
       setFormError('The image could not be saved.');
     } finally {
+      busy.current = false;
       setPending(undefined);
     }
   }
 
   async function removeImage(): Promise<void> {
+    if (busy.current) {
+      return;
+    }
+    busy.current = true;
     setPending('image');
+    setFormError(undefined);
     try {
       const response = await fetch(`/api/admin/deals/${deal.id}/image`, {
         method: 'DELETE',
@@ -324,6 +361,7 @@ export function ReviewScreen({ initialDeal }: { initialDeal: AdminDeal }) {
     } catch {
       setFormError('The image could not be removed.');
     } finally {
+      busy.current = false;
       setPending(undefined);
     }
   }
@@ -496,9 +534,10 @@ export function ReviewScreen({ initialDeal }: { initialDeal: AdminDeal }) {
           </div>
           <div className="rounded-2xl border border-line bg-white p-4">
             <p className="text-lg font-semibold">Image</p>
+            {pending === 'image' ? <p className="mt-3 text-lg">Saving image…</p> : null}
             {deal.hasImage && !imageFailed ? (
               <img
-                src={`/api/deals/${deal.id}/image`}
+                src={dealImageSrc(deal.id, deal.updatedAt)}
                 alt={deal.title}
                 className="mt-3 max-h-48 rounded-xl"
                 onError={() => setImageFailed(true)}
@@ -619,11 +658,15 @@ export function ReviewScreen({ initialDeal }: { initialDeal: AdminDeal }) {
           <h2 className="text-2xl font-bold">How the post will look</h2>
           {deal.hasImage && !imageFailed ? (
             <img
-              src={`/api/deals/${deal.id}/image`}
+              src={dealImageSrc(deal.id, deal.updatedAt)}
               alt=""
               className="mt-4 max-h-64 w-full rounded-xl object-cover"
             />
-          ) : null}
+          ) : (
+            <div className="mt-4 flex min-h-32 items-center justify-center rounded-xl border-2 border-dashed border-line">
+              No image
+            </div>
+          )}
           {previewHtml !== undefined ? (
             <div
               className="mt-4 whitespace-pre-wrap text-lg"
@@ -676,6 +719,7 @@ export function ReviewScreen({ initialDeal }: { initialDeal: AdminDeal }) {
             <button
               type="button"
               className={modal === 'reject' ? dangerButton : primaryButton}
+              disabled={pending !== undefined}
               onClick={submitModal}
             >
               {modal === 'reject' ? 'Reject this deal' : 'Send back'}

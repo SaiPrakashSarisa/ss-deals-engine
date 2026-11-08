@@ -4,9 +4,11 @@ import { AdminQueue } from '../src/components/admin/AdminQueue';
 import type { AdminListItem } from '../src/components/admin/types';
 
 const search = vi.hoisted(() => ({ value: '' }));
+const navigation = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(search.value),
+  useRouter: () => navigation,
 }));
 
 const now = Date.parse('2026-11-07T12:00:00.000Z');
@@ -46,6 +48,8 @@ function json(body: unknown, ok = true) {
 describe('AdminQueue', () => {
   afterEach(() => {
     search.value = '';
+    navigation.replace.mockReset();
+    navigation.push.mockReset();
     vi.unstubAllGlobals();
   });
 
@@ -122,5 +126,25 @@ describe('AdminQueue', () => {
       );
     expect(card).toBeDefined();
     expect(within(card!).queryByText('4')).toBeNull();
+  });
+
+  it('versions a thumbnail and shows a confirmation once', async () => {
+    search.value = 'notice=sent_back&name=Grace%20Hopper';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        json({
+          counts,
+          items: [item({ hasImage: true, updatedAt: '2026-11-07T10:00:00.000Z' })],
+        }),
+      ),
+    );
+    render(<AdminQueue status="pending_approval" now={now} />);
+    expect(await screen.findByRole('heading', { name: 'Blue kettle' })).toBeTruthy();
+    expect(document.querySelector('img')?.getAttribute('src')).toBe(
+      `/api/deals/deal-1/image?v=${encodeURIComponent('2026-11-07T10:00:00.000Z')}`,
+    );
+    expect(screen.getByRole('status').textContent).toContain('Sent back to Grace Hopper.');
+    expect(navigation.replace).toHaveBeenCalledWith('/admin');
   });
 });

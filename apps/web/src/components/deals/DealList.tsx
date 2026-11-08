@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { dealImageSrc } from '../deal-image';
 import { formatPaise } from '../../lib/money';
 import { follow } from '../../lib/navigate';
 import { Modal } from './Modal';
@@ -21,6 +22,7 @@ export type ListedDeal = {
   reviewNote: string | null;
   rejectedReason: string | null;
   hasImage: boolean;
+  updatedAt?: string | null;
 };
 
 type Overlay = { kind: 'preview' | 'withdraw'; deal: ListedDeal } | null;
@@ -176,7 +178,7 @@ export function DealList({
           </h2>
           {overlay.deal.hasImage && !imageFailed ? (
             <img
-              src={`/api/deals/${overlay.deal.id}/image`}
+              src={dealImageSrc(overlay.deal.id, overlay.deal.updatedAt)}
               alt={overlay.deal.title?.trim() || 'Deal image'}
               className="max-h-64 rounded-xl"
               onError={() => setImageFailed(true)}
