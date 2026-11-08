@@ -3,6 +3,7 @@ export const WITHDRAWN_DEAL = 'This deal was withdrawn or changed.';
 export const NOTE_REQUIRED = 'Enter a note for the person.';
 export const REASON_REQUIRED = 'Enter a reason.';
 export const REVIEW_TEXT_LENGTH = 'Keep this under 300 characters.';
+export const UNSCHEDULE_FIRST = 'Unschedule this deal before editing it.';
 
 export function readReviewText(
   value: unknown,

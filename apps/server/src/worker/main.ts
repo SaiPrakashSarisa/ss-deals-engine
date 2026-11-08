@@ -1,8 +1,12 @@
+import { access, constants, stat } from 'node:fs/promises';
 import { writeFileSync } from 'node:fs';
 import { loadConfig } from '../config/env.js';
 import { createDb } from '../lib/db.js';
 import { isEntrypoint } from '../lib/entrypoint.js';
 import { createLogger, startupSummary } from '../lib/logger.js';
+import { recoverInterruptedPublishing } from '../modules/publishing/service.js';
+import { runSchedulerTick, startPublishingLoop } from '../modules/publishing/scheduler.js';
+import { createTelegramClient } from '../modules/publishing/telegram.js';
 import { createShutdownHandler, installSignalHandlers } from '../shutdown.js';
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
@@ -12,14 +16,80 @@ function writeHeartbeat(): void {
   writeFileSync(HEARTBEAT_PATH, `${Date.now()}\n`);
 }
 
+export async function verifyUploadDir(
+  uploadDir: string,
+  log: { error: (message: string) => void },
+): Promise<boolean> {
+  try {
+    await access(uploadDir, constants.R_OK);
+    const info = await stat(uploadDir);
+    if (!info.isDirectory()) {
+      log.error(`uploads folder is not readable: ${uploadDir}`);
+      return false;
+    }
+    return true;
+  } catch {
+    log.error(`uploads folder is not readable: ${uploadDir}`);
+    return false;
+  }
+}
+
 export async function startWorker(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config);
   logger.info(startupSummary(config), 'worker starting');
+  await verifyUploadDir(config.UPLOAD_DIR, {
+    error: (message) => {
+      logger.error(message);
+    },
+  });
 
-  const { pool } = createDb(config.DATABASE_URL, logger);
+  const { pool, db } = createDb(config.DATABASE_URL, logger);
   writeHeartbeat();
   logger.info({ uptimeSeconds: Math.floor(process.uptime()) }, 'heartbeat');
+
+  await recoverInterruptedPublishing(db, new Date());
+  const botToken = config.TELEGRAM_BOT_TOKEN;
+  const channel = config.TELEGRAM_CHANNEL;
+  const publishing =
+    config.PUBLISHING_ENABLED && botToken !== null && channel !== null
+      ? startPublishingLoop({
+          intervalMs: config.SCHEDULER_INTERVAL_SECONDS * 1000,
+          run: async () => {
+            try {
+              await runSchedulerTick(
+                pool,
+                db,
+                { id: null, now: new Date() },
+                {
+                  client: createTelegramClient({
+                    token: botToken,
+                    timeoutMs: config.TELEGRAM_TIMEOUT_MS,
+                  }),
+                  config: {
+                    enabled: true,
+                    channel,
+                    token: botToken,
+                    dailyLimit: config.DAILY_POST_LIMIT,
+                    minGapMinutes: config.MIN_POST_GAP_MINUTES,
+                    maxLateMinutes: config.MAX_LATE_MINUTES,
+                    linkStyle: config.LINK_STYLE,
+                    postFooter: config.POST_FOOTER,
+                    uploadDir: config.UPLOAD_DIR,
+                    shortLinkHosts: config.SHORT_LINK_HOSTS,
+                  },
+                  logger,
+                },
+              );
+            } catch (error) {
+              logger.error(
+                { name: error instanceof Error ? error.name : 'Error' },
+                'scheduler tick failed',
+              );
+            }
+          },
+        })
+      : undefined;
 
   const timer = setInterval(() => {
     writeHeartbeat();
@@ -29,6 +99,7 @@ export async function startWorker(): Promise<void> {
   const shutdown = createShutdownHandler({
     closeServer: async () => {
       clearInterval(timer);
+      await publishing?.stop();
     },
     closePool: () => pool.end(),
     logger,

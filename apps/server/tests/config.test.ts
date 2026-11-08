@@ -19,6 +19,16 @@ describe('loadConfig', () => {
       SHORT_LINK_HOSTS: ['amzn.to', 'link.amazon'],
       UPLOAD_DIR: path.resolve('uploads'),
       MAX_UPLOAD_MB: 5,
+      PUBLISHING_ENABLED: false,
+      TELEGRAM_BOT_TOKEN: null,
+      TELEGRAM_CHANNEL: null,
+      TELEGRAM_TIMEOUT_MS: 15000,
+      DAILY_POST_LIMIT: 8,
+      LINK_STYLE: 'text',
+      POST_FOOTER: '',
+      MIN_POST_GAP_MINUTES: 30,
+      MAX_LATE_MINUTES: 120,
+      SCHEDULER_INTERVAL_SECONDS: 30,
     });
   });
 
@@ -51,6 +61,16 @@ describe('loadConfig', () => {
       SHORT_LINK_HOSTS: ['amzn.to', 'link.amazon'],
       UPLOAD_DIR: path.resolve('/tmp/ss-uploads'),
       MAX_UPLOAD_MB: 8,
+      PUBLISHING_ENABLED: false,
+      TELEGRAM_BOT_TOKEN: null,
+      TELEGRAM_CHANNEL: null,
+      TELEGRAM_TIMEOUT_MS: 15000,
+      DAILY_POST_LIMIT: 8,
+      LINK_STYLE: 'text',
+      POST_FOOTER: '',
+      MIN_POST_GAP_MINUTES: 30,
+      MAX_LATE_MINUTES: 120,
+      SCHEDULER_INTERVAL_SECONDS: 30,
     });
   });
 
@@ -84,5 +104,39 @@ describe('loadConfig', () => {
     expect(() =>
       loadConfig({ DATABASE_URL: databaseUrl, ALLOWED_ORIGIN: 'https://example.com/path' }),
     ).toThrow(/ALLOWED_ORIGIN/);
+  });
+
+  it('requires the channel and token only when publishing is on, and never repeats the token', () => {
+    const base = { DATABASE_URL: databaseUrl, AMAZON_TAG: 'example-21' };
+    expect(() => loadConfig({ ...base, PUBLISHING_ENABLED: 'true' })).toThrow(
+      /TELEGRAM_BOT_TOKEN is required when PUBLISHING_ENABLED is true/,
+    );
+    let thrown = '';
+    try {
+      loadConfig({ ...base, PUBLISHING_ENABLED: 'true', TELEGRAM_BOT_TOKEN: '123456:SECRETTOKEN' });
+    } catch (error) {
+      thrown = error instanceof Error ? error.message : '';
+    }
+    expect(thrown).toMatch(/TELEGRAM_CHANNEL is required/);
+    expect(thrown).not.toContain('SECRETTOKEN');
+    expect(
+      loadConfig({
+        ...base,
+        PUBLISHING_ENABLED: 'true',
+        TELEGRAM_BOT_TOKEN: '123456:SECRETTOKEN',
+        TELEGRAM_CHANNEL: '@deals_channel',
+        DAILY_POST_LIMIT: '4',
+        LINK_STYLE: 'both',
+        POST_FOOTER: 'See you tomorrow',
+      }),
+    ).toMatchObject({
+      PUBLISHING_ENABLED: true,
+      TELEGRAM_CHANNEL: '@deals_channel',
+      DAILY_POST_LIMIT: 4,
+      LINK_STYLE: 'both',
+      POST_FOOTER: 'See you tomorrow',
+    });
+    expect(() => loadConfig({ ...base, LINK_STYLE: 'loud' })).toThrow(/LINK_STYLE/);
+    expect(() => loadConfig({ ...base, POST_FOOTER: 'x'.repeat(121) })).toThrow(/POST_FOOTER/);
   });
 });

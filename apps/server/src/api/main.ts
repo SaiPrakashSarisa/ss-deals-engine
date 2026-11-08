@@ -28,6 +28,20 @@ export async function startApi(): Promise<void> {
       uploadDir: config.UPLOAD_DIR,
       maxUploadBytes: config.MAX_UPLOAD_MB * 1024 * 1024,
     },
+    publishing: {
+      enabled: config.PUBLISHING_ENABLED,
+      channel: config.TELEGRAM_CHANNEL,
+      token: config.TELEGRAM_BOT_TOKEN,
+      timeoutMs: config.TELEGRAM_TIMEOUT_MS,
+      dailyLimit: config.DAILY_POST_LIMIT,
+      minGapMinutes: config.MIN_POST_GAP_MINUTES,
+      maxLateMinutes: config.MAX_LATE_MINUTES,
+      linkStyle: config.LINK_STYLE,
+      postFooter: config.POST_FOOTER,
+      uploadDir: config.UPLOAD_DIR,
+      shortLinkHosts: config.SHORT_LINK_HOSTS,
+      logger,
+    },
   });
 
   const shutdown = createShutdownHandler({

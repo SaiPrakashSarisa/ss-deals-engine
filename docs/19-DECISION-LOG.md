@@ -183,3 +183,25 @@ Approve, send back, reject, reopen, and unapprove call `assertTransition`. Unapp
 ## 2026-11-08 — Image addresses and review exits
 
 Deal image URLs include the deal's `updatedAt` so a browser cannot keep a replaced file under the same address. `GET /api/deals/:id/image` sends `Cache-Control: private, no-cache`. After a successful send back or reject, the review page goes to `/admin` with a one-time notice (`Sent back to <name>.` or `Rejected.`) that the queue shows and then removes from the address. Approve, reopen, and unapprove stay on the deal and keep the `updatedAt` from the response.
+
+## 2026-11-08 — Publish now
+
+Publishing stays off unless `PUBLISHING_ENABLED` is true. The token and `@username` channel are required only then, and neither the token nor the database password is written at startup. The caption is the current content draft from approval, so the channel post matches the preview. `LINK_STYLE` adds the inline button when it is not `text`.
+
+One publication row exists per channel and deal. A failed row is reused for the next attempt. `queued`, `publishing`, and `uncertain` block another post for that channel and product. Telegram runs after that row is committed. `uncertain` is never retried by itself. If Telegram accepts the post and the database update fails, the row stays `publishing` and the log records the message id. The daily count is published posts from the app today in Asia/Kolkata. Imported history does not count. `GET /api/admin/publishing/status` includes the channel name so the admin screen can show it without a later server change. No schema change was required.
+
+## 2026-11-08 — Scheduler
+
+The worker posts one due deal at a time and holds a database advisory lock for the whole send, so a second worker cannot post as well. Env values for the daily limit and the minimum gap are defaults. Pause, the limit, and the gap live in `settings` and an admin can change them. A rate limit waits for Telegram's `retry_after`. A failure before the request is sent waits 1 minute and then 5 minutes. The third send is the last, so the 15-minute step is not scheduled. `uncertain` is never retried. A `publishing` row that is still open after 2 minutes becomes `uncertain` with "Server stopped while posting. Check the channel." A deal that is more than `MAX_LATE_MINUTES` late goes back to `approved` and the queue row is deleted. There is still no schema change. The unique publication row is reused, and `scheduled_for` stores both the chosen time and a retry time.
+
+## 2026-11-08 — Quick-post history import
+
+`import:quickpost` reads the bot's `posted.json` and records each ASIN as an already published product. The publication origin is `quickpost_import` and `posted_price_paise` is null, so a later post needs the admin's unknown-price confirmation. Those deals use `source_note` `quickpost_import` and stay out of the admin queue counts. They do not count toward the daily post limit. The publishing history labels them Imported. No schema change was required.
+
+## 2026-11-08 — Unknown price, the daily limit, and the gap
+
+An admin can create a draft for a product whose earlier posted price is missing by sending `confirmUnknownPrice: true`. The audit row records that confirmation. A person who is not an admin still cannot create that draft, and sending the flag does not change the refusal. Approval of that deal can proceed. Publish now still asks for its own confirmation. A queued post blocked by the daily limit keeps its chosen time when that time can wait inside the late window, and shows "Waiting for tomorrow's limit". If the next day is further away than the late window, `scheduled_for` moves and the audit stores the original time. `GET /api/admin/publishing/status` includes `minGapMinutes`, and the settings form shows that saved value.
+
+## 2026-11-08 — Shared uploads, the chosen time, and earlier details
+
+A post scheduled for 2:15 pm was shown as 2:29 pm because the worker rewrote `scheduled_for` to the end of the minimum gap as soon as the post became due. The chosen time now stays put. A gap or a retry only waits. The daily limit is the only reason `scheduled_for` changes, and only when the post would otherwise miss the late window before the next India day. The original time is stored on the audit row. The api and the worker share one uploads volume at the same `UPLOAD_DIR`. The worker logs that path at startup when the folder cannot be read. The person sees a fixed message with no server path. A new deal can reuse the title, highlights, short link, source note, preview setting, and image from an earlier deal the person owns or that was published. The price, old price, offer, and verified flag are never copied.

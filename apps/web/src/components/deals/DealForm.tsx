@@ -11,12 +11,49 @@ import {
 } from 'react';
 import { dealImageSrc } from '../deal-image';
 import { follow } from '../../lib/navigate';
+import { formatPaise } from '../../lib/money';
 import { bannerForCheck, checkAllowsSave, type UrlBanner } from './banner';
 import { formatDealPreview } from './preview';
 import { validateDealForm } from './validate';
 
 const fieldClass =
   'min-h-14 w-full rounded-xl border-2 border-slate-400 bg-white px-4 text-lg text-ink';
+
+const earlierCodes = new Set([
+  'posted_lower',
+  'posted_blocked',
+  'posted_unknown_price',
+  'in_queue',
+  'awaiting_price',
+]);
+
+type EarlierDeal = {
+  dealId: string;
+  title: string;
+  highlights: string[];
+  shortLink: string | null;
+  sourceNote: string | null;
+  previewEnabled: boolean;
+  hasImage: boolean;
+  postedAt: string | null;
+  postedPrice: number | null;
+};
+
+function formatEarlierWhen(value: string | null): string {
+  if (value === null) {
+    return 'an earlier time';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'an earlier time';
+  }
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(date);
+}
 
 type LoadedDeal = {
   title: string | null;
@@ -70,6 +107,11 @@ export function DealForm({
   const [taggedUrl, setTaggedUrl] = useState<string | null>(null);
   const [banner, setBanner] = useState<UrlBanner | undefined>();
   const [code, setCode] = useState<string | null>(null);
+  const [allowUnknownPriceConfirm, setAllowUnknownPriceConfirm] = useState(false);
+  const [unknownConfirmed, setUnknownConfirmed] = useState(false);
+  const [earlier, setEarlier] = useState<EarlierDeal | undefined>();
+  const [previewEnabled, setPreviewEnabled] = useState(true);
+  const [copyFrom, setCopyFrom] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
@@ -194,6 +236,8 @@ export function DealForm({
     if (trimmed.length === 0) {
       setBanner(undefined);
       setCode(null);
+      setAllowUnknownPriceConfirm(false);
+      setUnknownConfirmed(false);
       setTaggedUrl(null);
       return;
     }
@@ -216,6 +260,8 @@ export function DealForm({
             previousPricePaise?: number | null;
             newPricePaise?: number | null;
             taggedUrl?: string | null;
+            asin?: string | null;
+            allowUnknownPriceConfirm?: boolean;
             error?: unknown;
           })
         | null;
@@ -224,6 +270,8 @@ export function DealForm({
       }
       if (!response.ok || body === null || typeof body.code !== 'string') {
         setCode(null);
+        setAllowUnknownPriceConfirm(false);
+        setUnknownConfirmed(false);
         setBanner({
           tone: 'bad',
           text:
@@ -232,6 +280,11 @@ export function DealForm({
         return;
       }
       setCode(body.code);
+      const allowed = body.allowUnknownPriceConfirm === true;
+      setAllowUnknownPriceConfirm(allowed);
+      if (!allowed) {
+        setUnknownConfirmed(false);
+      }
       setTaggedUrl(typeof body.taggedUrl === 'string' ? body.taggedUrl : null);
       setBanner(
         bannerForCheck({
@@ -244,12 +297,84 @@ export function DealForm({
           newPricePaise: typeof body.newPricePaise === 'number' ? body.newPricePaise : null,
         }),
       );
+      if (earlierCodes.has(body.code) && typeof body.asin === 'string') {
+        void loadEarlier(body.asin);
+      } else {
+        setEarlier(undefined);
+      }
     } catch {
       if (seq === checkSeq.current) {
         setCode(null);
+        setAllowUnknownPriceConfirm(false);
+        setUnknownConfirmed(false);
         setBanner({ tone: 'bad', text: 'The product link could not be checked.' });
       }
     }
+  }
+
+  async function loadEarlier(asin: string): Promise<void> {
+    try {
+      const response = await fetch(`/api/deals/previous?asin=${encodeURIComponent(asin)}`);
+      const body = (await response.json().catch(() => null)) as EarlierDeal | null;
+      if (!response.ok || body === null || typeof body.dealId !== 'string') {
+        setEarlier(undefined);
+        return;
+      }
+      setEarlier({
+        dealId: body.dealId,
+        title: typeof body.title === 'string' ? body.title : '',
+        highlights: Array.isArray(body.highlights)
+          ? body.highlights.filter((item) => typeof item === 'string')
+          : [],
+        shortLink: typeof body.shortLink === 'string' ? body.shortLink : null,
+        sourceNote: typeof body.sourceNote === 'string' ? body.sourceNote : null,
+        previewEnabled: body.previewEnabled !== false,
+        hasImage: body.hasImage === true,
+        postedAt: typeof body.postedAt === 'string' ? body.postedAt : null,
+        postedPrice: typeof body.postedPrice === 'number' ? body.postedPrice : null,
+      });
+    } catch {
+      setEarlier(undefined);
+    }
+  }
+
+  async function copyEarlierImage(targetId: string, sourceId: string): Promise<boolean> {
+    const response = await fetch(`/api/deals/${targetId}/image/copy-from/${sourceId}`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      return false;
+    }
+    setExistingImage(true);
+    setRemoveExisting(false);
+    setFile(null);
+    setCopyFrom(null);
+    setImageUpdatedAt(new Date().toISOString());
+    return true;
+  }
+
+  function useEarlier(): void {
+    if (earlier === undefined) {
+      return;
+    }
+    setTitle(earlier.title);
+    setHighlights(padHighlights(earlier.highlights));
+    setShortLink(earlier.shortLink ?? '');
+    setSourceNote(earlier.sourceNote ?? '');
+    setPreviewEnabled(earlier.previewEnabled);
+    const priceField = document.getElementById('price');
+    if (priceField instanceof HTMLElement) {
+      priceField.focus();
+    }
+    if (!earlier.hasImage) {
+      return;
+    }
+    const current = dealRef.current;
+    if (current === undefined) {
+      setCopyFrom(earlier.dealId);
+      return;
+    }
+    void copyEarlierImage(current, earlier.dealId);
   }
 
   function onUrlPaste(event: ClipboardEvent<HTMLInputElement>): void {
@@ -293,6 +418,7 @@ export function DealForm({
     if (existingImage) {
       setRemoveExisting(true);
     }
+    setCopyFrom(null);
     if (fileInput.current !== null) {
       fileInput.current.value = '';
     }
@@ -315,7 +441,8 @@ export function DealForm({
       shortLinkHosts,
     );
     setFieldErrors(fields);
-    if (Object.keys(fields).length > 0 || !checkAllowsSave(code)) {
+    const confirmed = allowUnknownPriceConfirm && unknownConfirmed;
+    if (Object.keys(fields).length > 0 || !checkAllowsSave(code, confirmed)) {
       if (Object.keys(fields).length > 0) {
         setFormError('Check the highlighted fields.');
       }
@@ -334,6 +461,8 @@ export function DealForm({
         shortLink,
         sourceNote,
         clerkNotes: notes,
+        previewEnabled,
+        ...(confirmed ? { confirmUnknownPrice: true } : {}),
       };
       const path = dealId === undefined ? '/api/deals' : `/api/deals/${dealId}`;
       const method = dealId === undefined ? 'POST' : 'PATCH';
@@ -383,8 +512,24 @@ export function DealForm({
         setRemoveExisting(false);
       }
 
+      if (copyFrom !== null && file === null && !removeExisting) {
+        const copied = await copyEarlierImage(id, copyFrom);
+        if (!copied) {
+          setFormError('The earlier image could not be copied.');
+          return;
+        }
+      }
+
       if (intent === 'review') {
-        const submitted = await fetch(`/api/deals/${id}/submit`, { method: 'POST' });
+        const submitted = await fetch(`/api/deals/${id}/submit`, {
+          method: 'POST',
+          ...(confirmed
+            ? {
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ confirmUnknownPrice: true }),
+              }
+            : {}),
+        });
         const submittedBody = (await submitted.json().catch(() => null)) as ErrorBody | null;
         if (!submitted.ok) {
           applyError(submitted.status, submittedBody);
@@ -433,7 +578,11 @@ export function DealForm({
     (existingImage && !removeExisting && dealId !== undefined
       ? dealImageSrc(dealId, imageUpdatedAt)
       : undefined);
-  const canSave = checkAllowsSave(code) && pending === undefined && !loading && !locked;
+  const canSave =
+    checkAllowsSave(code, allowUnknownPriceConfirm && unknownConfirmed) &&
+    pending === undefined &&
+    !loading &&
+    !locked;
   const toneClass = {
     good: 'border-green-700 bg-green-50',
     calm: 'border-slate-400 bg-slate-50',
@@ -523,7 +672,35 @@ export function DealForm({
             className={`rounded-xl border-2 px-4 py-3 text-lg ${toneClass[banner.tone]}`}
           >
             <p className="font-semibold">{banner.text}</p>
-            {banner.detail !== undefined ? <p className="mt-1">{banner.detail}</p> : null}
+            {banner.detail !== undefined && !allowUnknownPriceConfirm ? (
+              <p className="mt-1">{banner.detail}</p>
+            ) : null}
+            {allowUnknownPriceConfirm ? (
+              <label className="mt-3 flex min-h-14 items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={unknownConfirmed}
+                  onChange={(event) => setUnknownConfirmed(event.target.checked)}
+                />
+                I checked the channel and this product was not posted recently
+              </label>
+            ) : null}
+          </div>
+        ) : null}
+        {earlier !== undefined ? (
+          <div className="rounded-xl border-2 border-amber-500 bg-amber-50 px-4 py-3 text-lg">
+            <p>
+              This product was posted before ({formatEarlierWhen(earlier.postedAt)} at{' '}
+              {earlier.postedPrice === null ? 'an earlier price' : formatPaise(earlier.postedPrice)}
+              ). Use its details?
+            </p>
+            <button
+              type="button"
+              className="mt-3 inline-flex min-h-14 items-center rounded-xl bg-primary px-5 text-lg font-semibold text-white"
+              onClick={useEarlier}
+            >
+              Use earlier details
+            </button>
           </div>
         ) : null}
 
@@ -676,6 +853,14 @@ export function DealForm({
           />
         </Field>
 
+        <label className="flex min-h-14 items-center gap-3 text-lg font-semibold">
+          <input
+            type="checkbox"
+            checked={previewEnabled}
+            onChange={(event) => setPreviewEnabled(event.target.checked)}
+          />
+          Link preview
+        </label>
         <Field
           id="image"
           label="Image"

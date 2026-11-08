@@ -23,6 +23,8 @@ export type UrlCheck = {
   previousPricePaise: number | null;
   newPricePaise: number | null;
   taggedUrl: string | null;
+  allowUnknownPriceConfirm: boolean;
+  earlier: { id: string; postedAt: string | null; postedPricePaise: number | null } | null;
 };
 
 /**

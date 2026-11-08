@@ -3,6 +3,7 @@ import type { SessionUser } from '../lib/session';
 const links = {
   owner: [
     { href: '/admin', label: 'Review queue' },
+    { href: '/admin/publishing', label: 'Publishing' },
     { href: '/deals/new', label: 'New deal' },
   ],
   clerk: [

@@ -59,6 +59,11 @@ export function bannerForCheck(check: UrlCheckPayload): UrlBanner {
   return { tone: 'good', text: 'OK' };
 }
 
-export function checkAllowsSave(code: string | null): boolean {
-  return code === 'ok' || code === 'posted_lower' || code === 'editing';
+export function checkAllowsSave(code: string | null, unknownConfirmed = false): boolean {
+  return (
+    code === 'ok' ||
+    code === 'posted_lower' ||
+    code === 'editing' ||
+    (code === 'posted_unknown_price' && unknownConfirmed)
+  );
 }

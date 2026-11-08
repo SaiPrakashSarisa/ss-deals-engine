@@ -7,6 +7,7 @@ import {
   DRAFT_RATE_LIMIT_ERROR,
   IMAGE_INVALID_ERROR,
   IMAGE_MISSING_ERROR,
+  IMAGE_NONE_ERROR,
   IMAGE_SAVE_ERROR,
   IMAGE_TYPE_ERROR,
   UPLOAD_RATE_LIMIT_ERROR,
@@ -26,6 +27,8 @@ import {
   getDeal,
   listDeals,
   openDealImage,
+  previousDeal,
+  assertImageCopySource,
   setDealImage,
   submitDraft,
   updateDraft,
@@ -34,7 +37,7 @@ import {
 import type { DealStatus } from './status.js';
 import { SIGN_IN_REQUIRED } from '../auth/messages.js';
 import type { SessionDeps } from '../auth/service.js';
-import { removeStoredImage, writeStoredImage } from '../uploads/files.js';
+import { readStoredImage, removeStoredImage, writeStoredImage } from '../uploads/files.js';
 import { reencodeImage } from '../uploads/image.js';
 import { detectImageKind } from '../uploads/magic.js';
 import { parseCheckBody, parseDealBody, parseDealId, parseStatusFilter } from './validation.js';
@@ -159,6 +162,21 @@ export function registerDealRoutes(app: FastifyInstance, deps: DealRouteDeps): v
     }));
   });
 
+  app.get('/api/deals/previous', { preHandler: guard }, async (request, reply) => {
+    const user = request.authUser;
+    if (user === null) {
+      return reply.code(401).send({ error: SIGN_IN_REQUIRED });
+    }
+    const productId = readQuery(request.query, 'productId');
+    const asin = readQuery(request.query, 'asin');
+    return handle(reply, () =>
+      previousDeal(deps.db, user, {
+        productId: typeof productId === 'string' ? productId : undefined,
+        asin: typeof asin === 'string' ? asin : undefined,
+      }),
+    );
+  });
+
   app.get('/api/deals/:id', { preHandler: guard }, async (request, reply) => {
     const user = request.authUser;
     if (user === null) {
@@ -213,7 +231,7 @@ export function registerDealRoutes(app: FastifyInstance, deps: DealRouteDeps): v
       return reply.code(404).send({ error: 'That deal was not found.' });
     }
     return handle(reply, async () => ({
-      deal: await submitDraft(deps.db, user, id, deps.now()),
+      deal: await submitDraft(deps.db, user, id, deps.now(), confirmUnknownPrice(request.body)),
     }));
   });
 
@@ -251,6 +269,52 @@ export function registerDealRoutes(app: FastifyInstance, deps: DealRouteDeps): v
       return reply.code(204).send();
     });
   });
+
+  app.post(
+    '/api/deals/:id/image/copy-from/:otherDealId',
+    { preHandler: guard },
+    async (request, reply) => {
+      const user = request.authUser;
+      if (user === null) {
+        return reply.code(401).send({ error: SIGN_IN_REQUIRED });
+      }
+      const id = parseDealId(readParam(request.params, 'id'));
+      const otherDealId = parseDealId(readParam(request.params, 'otherDealId'));
+      if (id === undefined || otherDealId === undefined) {
+        return reply.code(404).send({ error: 'That deal was not found.' });
+      }
+      return handle(reply, async () => {
+        const filename = await assertImageCopySource(deps.db, user, otherDealId);
+        const bytes = await readStoredImage(deps.uploadDir, filename);
+        if (bytes === undefined) {
+          return reply.code(404).send({ error: IMAGE_NONE_ERROR });
+        }
+        const encoded = await reencodeImage(bytes);
+        if (encoded === undefined) {
+          return reply.code(400).send({ error: IMAGE_INVALID_ERROR });
+        }
+        let stored: string;
+        try {
+          stored = await writeStoredImage(deps.uploadDir, encoded.extension, encoded.bytes);
+        } catch {
+          return reply.code(500).send({ error: IMAGE_SAVE_ERROR });
+        }
+        try {
+          const saved = await setDealImage(deps.db, user, id, {
+            filename: stored,
+            mime: encoded.mime,
+          });
+          if (saved.previousFilename !== null && saved.previousFilename !== stored) {
+            await removeStoredImage(deps.uploadDir, saved.previousFilename);
+          }
+          return { deal: saved.deal };
+        } catch (error) {
+          await removeStoredImage(deps.uploadDir, stored);
+          throw error;
+        }
+      });
+    },
+  );
 
   app.register(async (scope) => {
     await scope.register(multipart, {
@@ -340,4 +404,13 @@ function readQuery(query: unknown, key: string): unknown {
     return undefined;
   }
   return (query as Record<string, unknown>)[key];
+}
+
+function confirmUnknownPrice(body: unknown): boolean {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    'confirmUnknownPrice' in body &&
+    (body as { confirmUnknownPrice?: unknown }).confirmUnknownPrice === true
+  );
 }

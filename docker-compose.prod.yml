@@ -9,8 +9,16 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: ${COMPOSE_DATABASE_URL:?Set COMPOSE_DATABASE_URL to postgres://USER:PASSWORD@postgres:5432/DB}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-5}
+    volumes:
+      - uploads_data:/app/uploads
 
   worker:
     environment:
       NODE_ENV: production
       DATABASE_URL: ${COMPOSE_DATABASE_URL:?Set COMPOSE_DATABASE_URL to postgres://USER:PASSWORD@postgres:5432/DB}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-5}
+    volumes:
+      - uploads_data:/app/uploads

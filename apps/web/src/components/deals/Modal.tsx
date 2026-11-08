@@ -20,10 +20,12 @@ function focusableItems(panel: HTMLElement): HTMLElement[] {
 export function Modal({
   titleId,
   onClose,
+  closable = true,
   children,
 }: {
   titleId: string;
   onClose: () => void;
+  closable?: boolean;
   children: ReactNode;
 }) {
   const onCloseRef = useRef(onClose);
@@ -39,6 +41,10 @@ export function Modal({
 
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') {
+        if (!closable) {
+          event.preventDefault();
+          return;
+        }
         event.preventDefault();
         onCloseRef.current();
         return;
@@ -81,16 +87,20 @@ export function Modal({
       document.removeEventListener('keydown', onKey);
       previous?.focus();
     };
-  }, []);
+  }, [closable]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
-      <button
-        type="button"
-        aria-label="Dismiss"
-        className="absolute inset-0 bg-slate-900/40"
-        onClick={onClose}
-      />
+      {closable ? (
+        <button
+          type="button"
+          aria-label="Dismiss"
+          className="absolute inset-0 bg-slate-900/40"
+          onClick={onClose}
+        />
+      ) : (
+        <div className="absolute inset-0 bg-slate-900/40" />
+      )}
       <div
         ref={panelRef}
         role="dialog"

@@ -18,7 +18,7 @@ import {
 import { evaluateRepost } from '../deals/repost.js';
 import { DealStatusTransitionError, assertTransition, type DealStatus } from '../deals/status.js';
 import type { ReviewEditInput } from '../deals/validation.js';
-import { STALE_DEAL, WITHDRAWN_DEAL } from './messages.js';
+import { STALE_DEAL, UNSCHEDULE_FIRST, WITHDRAWN_DEAL } from './messages.js';
 import { getAdminDeal, type AdminDealDetail } from './service.js';
 
 type ReviewDb = Database['db'];
@@ -107,6 +107,9 @@ function sameInstant(stored: Date, sent: Date): boolean {
 function guardEdit(row: LockedDeal, updatedAt: Date): void {
   if (!sameInstant(row.updatedAt, updatedAt)) {
     throw new DealHttpError(409, STALE_DEAL);
+  }
+  if (row.status === 'scheduled') {
+    throw new DealHttpError(409, UNSCHEDULE_FIRST);
   }
   if (!(EDITABLE_STATUSES as readonly DealStatus[]).includes(row.status)) {
     throw new DealHttpError(409, NOT_EDITABLE);
@@ -250,13 +253,11 @@ async function assertRepostAllowed(
       lastPublication === undefined ? null : { postedPricePaise: lastPublication.postedPricePaise },
     newPricePaise: pricePaise,
   });
+  if (decision.reason === 'previous_price_unknown') {
+    return;
+  }
   if (!decision.allowed && decision.reason !== 'first_post') {
-    throw new DealHttpError(
-      409,
-      repostRefusalMessage(
-        decision.reason === 'price_not_lower' ? 'price_not_lower' : 'previous_price_unknown',
-      ),
-    );
+    throw new DealHttpError(409, repostRefusalMessage('price_not_lower'));
   }
 }
 

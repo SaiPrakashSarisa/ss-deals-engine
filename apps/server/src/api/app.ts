@@ -4,6 +4,10 @@ import type { Database } from '../lib/db.js';
 import { registerAuthRoutes, type AuthRouteDeps } from '../modules/auth/routes.js';
 import { registerDealRoutes, type DealRouteDeps } from '../modules/deals/routes.js';
 import { registerHealthRoutes } from '../modules/health/routes.js';
+import {
+  registerPublishingRoutes,
+  type PublishingRouteDeps,
+} from '../modules/publishing/routes.js';
 import { registerReviewRoutes } from '../modules/review/routes.js';
 
 const BODY_LIMIT_BYTES = 16 * 1024;
@@ -19,12 +23,18 @@ export type ReviewAppOptions = {
   shortLinkHosts?: readonly string[];
 };
 
+export type PublishingAppOptions = Omit<
+  PublishingRouteDeps,
+  'db' | 'now' | 'cookieName' | 'cookieSecure'
+>;
+
 export function buildApp(options: {
   checkDb: () => Promise<boolean>;
   logger?: Logger;
   auth?: AuthAppOptions;
   deals?: DealsAppOptions;
   review?: ReviewAppOptions;
+  publishing?: PublishingAppOptions;
 }): FastifyInstance {
   const shared = {
     bodyLimit: BODY_LIMIT_BYTES,
@@ -77,6 +87,16 @@ export function buildApp(options: {
       uploadDir: options.deals?.uploadDir ?? '',
       maxUploadBytes: options.deals?.maxUploadBytes ?? 5 * 1024 * 1024,
     });
+    const publishing = options.publishing;
+    if (publishing !== undefined) {
+      registerPublishingRoutes(app, {
+        ...publishing,
+        db: options.auth.db,
+        now,
+        cookieName: options.auth.cookieName,
+        cookieSecure: options.auth.cookieSecure,
+      });
+    }
   }
 
   return app;

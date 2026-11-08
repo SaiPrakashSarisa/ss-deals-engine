@@ -2,7 +2,7 @@ import { access, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { FastifyInstance } from 'fastify';
@@ -455,6 +455,45 @@ describe.skipIf(databaseUrl === '')('deal http', () => {
     expect(String(unknown.json().error).toLowerCase()).not.toMatch(/owner|clerk/);
   });
 
+  it('lets an admin create a draft when the earlier posted price is missing', async () => {
+    await seedPublished('B0TEST1234', null, adaId);
+    const body = dealBody({ price: '100', oldPrice: '', confirmUnknownPrice: true });
+    const clerk = await postDeal(await login('grace'), body);
+    expect(clerk.statusCode).toBe(409);
+    expect(String(clerk.json().error)).toMatch(/Ask an admin/);
+    expect(
+      await database().select({ id: deals.id }).from(deals).where(eq(deals.status, 'draft')),
+    ).toHaveLength(0);
+
+    const admin = await login('ada');
+    const without = await postDeal(admin, dealBody({ price: '100', oldPrice: '' }));
+    expect(without.statusCode).toBe(409);
+
+    const created = await postDeal(admin, body);
+    expect(created.statusCode).toBe(201);
+    const dealId = created.json().deal.id as string;
+    const [audit] = await database()
+      .select({ details: auditLog.details })
+      .from(auditLog)
+      .where(and(eq(auditLog.action, 'deal.create'), eq(auditLog.entityId, dealId)));
+    expect(audit?.details).toMatchObject({ confirmUnknownPrice: true });
+
+    await truncate();
+    adaId = await insertUser('ada', 'owner');
+    graceId = await insertUser('grace', 'clerk');
+    await seedPublished('B0TEST5678', 200_000, adaId);
+    const lower = await postDeal(
+      await login('grace'),
+      dealBody({
+        productUrl: 'https://www.amazon.in/dp/B0TEST5678',
+        price: '1999',
+        oldPrice: '',
+        shortLink: '',
+      }),
+    );
+    expect(lower.statusCode).toBe(201);
+  });
+
   it("keeps one person from reading or editing another person's deal", async () => {
     const grace = await login('grace');
     const created = await postDeal(grace, dealBody());
@@ -844,6 +883,125 @@ describe.skipIf(databaseUrl === '')('deal http', () => {
     expect((await patchDeal(grace, id, dealBody({ price: '1499', oldPrice: '' }))).statusCode).toBe(
       200,
     );
+  });
+
+  it('shares earlier published details and copies only the image', async () => {
+    await seedPublished('B0PREV0001', 250_000, adaId);
+    const [source] = await database()
+      .select({ id: deals.id, linkId: deals.linkId })
+      .from(deals)
+      .innerJoin(products, eq(products.id, deals.productId))
+      .where(eq(products.externalId, 'B0PREV0001'));
+    if (source === undefined) {
+      throw new Error('published deal missing');
+    }
+    await database()
+      .update(deals)
+      .set({
+        title: 'Earlier kettle',
+        highlights: ['Steel'],
+        sourceNote: 'Old group',
+        previewEnabled: false,
+        offerText: 'Do not copy',
+        oldPricePaise: 300_000,
+        oldPriceVerified: true,
+      })
+      .where(eq(deals.id, source.id));
+    await database()
+      .update(affiliateLinks)
+      .set({ shortUrl: 'https://amzn.to/earlier' })
+      .where(eq(affiliateLinks.id, source.linkId));
+    const bytes = await png(40);
+    const ada = await login('ada');
+    const uploaded = await upload(ada, source.id, bytes, 'earlier.png', 'image/png');
+    expect(uploaded.statusCode).toBe(409);
+
+    const { writeStoredImage } = await import('../../src/modules/uploads/files.js');
+    const filename = await writeStoredImage(uploadDir, 'png', bytes);
+    await database()
+      .update(deals)
+      .set({ imagePath: filename, imageMime: 'image/png' })
+      .where(eq(deals.id, source.id));
+
+    const grace = await login('grace');
+    const earlier = await server().inject({
+      method: 'GET',
+      url: '/api/deals/previous?asin=B0PREV0001',
+      headers: { cookie: grace, origin },
+    });
+    expect(earlier.statusCode).toBe(200);
+    expect(earlier.json()).toMatchObject({
+      dealId: source.id,
+      title: 'Earlier kettle',
+      highlights: ['Steel'],
+      shortLink: 'https://amzn.to/earlier',
+      sourceNote: 'Old group',
+      previewEnabled: false,
+      hasImage: true,
+      postedPrice: 250_000,
+    });
+    expect(earlier.json()).not.toHaveProperty('offer');
+    expect(earlier.json()).not.toHaveProperty('oldPricePaise');
+    expect(earlier.json()).not.toHaveProperty('oldPriceVerified');
+
+    const created = await postDeal(
+      grace,
+      dealBody({
+        productUrl: 'https://www.amazon.in/dp/B0PREV0001',
+        price: '1999',
+        oldPrice: '2500',
+        offer: 'Mine',
+      }),
+    );
+    expect(created.statusCode).toBe(201);
+    const id = created.json().deal.id as string;
+    expect(created.json().deal.pricePaise).toBe(199_900);
+    const copied = await server().inject({
+      method: 'POST',
+      url: `/api/deals/${id}/image/copy-from/${source.id}`,
+      headers: { cookie: grace, origin },
+    });
+    expect(copied.statusCode).toBe(200);
+    expect(copied.json().deal.hasImage).toBe(true);
+    expect(copied.json().deal.pricePaise).toBe(199_900);
+    expect(copied.json().deal.offer).toBe('Mine');
+    expect(copied.json().deal.oldPriceVerified).toBe(false);
+    expect(copied.json().deal.imagePath).toBeUndefined();
+
+    const privateDraft = await postDeal(
+      ada,
+      dealBody({ productUrl: 'https://www.amazon.in/dp/B0PRIV0001' }),
+    );
+    expect(privateDraft.statusCode).toBe(201);
+    const privateId = privateDraft.json().deal.id as string;
+    await upload(ada, privateId, await png(12), 'private.png', 'image/png');
+    expect(
+      (
+        await server().inject({
+          method: 'GET',
+          url: '/api/deals/previous?asin=B0PRIV0001',
+          headers: { cookie: grace, origin },
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await server().inject({
+          method: 'POST',
+          url: `/api/deals/${id}/image/copy-from/${privateId}`,
+          headers: { cookie: grace, origin },
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await server().inject({
+          method: 'GET',
+          url: '/api/deals/previous?asin=B0PRIV0001',
+          headers: { cookie: ada, origin },
+        })
+      ).statusCode,
+    ).toBe(200);
   });
 
   function upload(cookie: string, id: string, file: Buffer, filename: string, type: string) {

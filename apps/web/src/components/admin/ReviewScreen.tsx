@@ -7,6 +7,7 @@ import { dealImageSrc } from '../deal-image';
 import { validateDealForm } from '../deals/validate';
 import { Modal } from '../deals/Modal';
 import { reviewExitHref } from './notices';
+import { PublishingControls } from './PublishingControls';
 import { STALE_DEAL, type AdminDeal } from './types';
 
 const fieldClass =
@@ -643,12 +644,15 @@ export function ReviewScreen({ initialDeal }: { initialDeal: AdminDeal }) {
             >
               Unapprove
             </button>
-            <button type="button" className={secondaryButton} disabled>
-              Publish now. Publishing arrives in the next step
-            </button>
-            <button type="button" className={secondaryButton} disabled>
-              Schedule. Publishing arrives in the next step
-            </button>
+            <PublishingControls
+              deal={deal}
+              pending={pending}
+              busy={busy}
+              onPending={setPending}
+              onDeal={(patch) => setDeal((current) => ({ ...current, ...patch }))}
+              onNotice={setNotice}
+              onError={setFormError}
+            />
           </div>
         </form>
         <aside
