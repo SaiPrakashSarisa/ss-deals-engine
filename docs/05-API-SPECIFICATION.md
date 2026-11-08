@@ -79,17 +79,17 @@ Creating a draft and uploading an image are each limited to 30 times per person 
 
 Admin review routes require a signed-in session with the admin role (`owner`). Anonymous requests receive `401`. Non-admin (`clerk`) requests receive `403`. Responses never include password hashes, session tokens, or other private user fields.
 
-| Method | Path                   | Query / Params                                                                                                                    | Success                                                           |
-| ------ | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `GET`  | `/api/admin/deals`     | `status=pending_approval\|approved\|draft\|rejected\|published\|failed` (default `pending_approval`), `page`, `pageSize` (max 50) | `200` `{ "counts": { ... }, "items": [ ... ] }`                   |
-| `GET`  | `/api/admin/deals/:id` | `id` (deal UUID)                                                                                                                  | `200` Deal detail with preview, duplicate, repost, and image info |
+| Method | Path                   | Query / Params                                                                                                                               | Success                                                           |
+| ------ | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `GET`  | `/api/admin/deals`     | `status=pending_approval\|approved\|sent_back\|draft\|rejected\|published\|failed` (default `pending_approval`), `page`, `pageSize` (max 50) | `200` `{ "counts": { ... }, "items": [ ... ] }`                   |
+| `GET`  | `/api/admin/deals/:id` | `id` (deal UUID)                                                                                                                             | `200` Deal detail with preview, duplicate, repost, and image info |
 
 `GET /api/admin/deals`:
 
-- `status`: filters by status. Defaults to `pending_approval`. An unrecognized status is `400`.
+- `status`: filters by status. Defaults to `pending_approval`. `sent_back` means `draft` with a review note. An unrecognized status is `400`.
 - `page`: 1-based page number (default 1).
 - `pageSize`: items per page (default 20, max 50).
-- `counts`: total count of deals for each status in the database (`pending_approval`, `approved`, `draft`, `rejected`, `published`, `failed`, `scheduled`).
+- `counts`: total count of deals for each status in the database (`pending_approval`, `approved`, `draft`, `rejected`, `published`, `failed`, `scheduled`), plus `sent_back` for drafts whose `review_note` is set. A draft that was never submitted, and a draft withdrawn before review, are not in `sent_back`.
 - `items`: array of deals. Each item: `id`, `title`, `price` (rupees), `oldPrice` (rupees, or null), `oldPriceVerified`, `hasImage`, `createdBy` (display name, falling back to username), `sourceNote`, `submittedAt`, `status`, `updatedAt`.
 - Ordering: `pending_approval` is ordered oldest first (`submittedAt` ascending, fallback `createdAt`); other statuses are ordered newest first (`updatedAt` descending, `createdAt` descending).
 

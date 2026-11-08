@@ -28,7 +28,7 @@ import {
 } from './actions.js';
 import { requireAdmin } from './guard.js';
 import { NOTE_REQUIRED, REASON_REQUIRED, readReviewText } from './messages.js';
-import { getAdminDeal, listAdminDeals } from './service.js';
+import { getAdminDeal, listAdminDeals, type AdminListStatus } from './service.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -62,9 +62,12 @@ function readBody(body: unknown, key: string): unknown {
   return (body as Record<string, unknown>)[key];
 }
 
-function parseStatusFilter(value: unknown): DealStatus | 'invalid' | undefined {
+function parseStatusFilter(value: unknown): AdminListStatus | 'invalid' | undefined {
   if (value === undefined || value === '') {
     return undefined;
+  }
+  if (value === 'sent_back') {
+    return 'sent_back';
   }
   if (typeof value === 'string' && (dealStatuses as readonly string[]).includes(value)) {
     return value as DealStatus;

@@ -3,12 +3,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AdminQueue } from '../src/components/admin/AdminQueue';
 import type { AdminListItem } from '../src/components/admin/types';
 
+const search = vi.hoisted(() => ({ value: '' }));
+
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(search.value),
+}));
+
 const now = Date.parse('2026-11-07T12:00:00.000Z');
 
 const counts = {
   pending_approval: 2,
   approved: 1,
-  draft: 3,
+  draft: 4,
+  sent_back: 1,
   published: 4,
   rejected: 0,
   scheduled: 0,
@@ -38,6 +45,7 @@ function json(body: unknown, ok = true) {
 
 describe('AdminQueue', () => {
   afterEach(() => {
+    search.value = '';
     vi.unstubAllGlobals();
   });
 
@@ -87,5 +95,32 @@ describe('AdminQueue', () => {
     render(<AdminQueue status="pending_approval" now={now} />);
     expect(await screen.findByText('The review queue could not be loaded.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+  });
+
+  it('uses the sent-back count and does not list never-submitted drafts', async () => {
+    search.value = 'status=sent_back';
+    let called = '';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo) => {
+        called = String(input);
+        return json({
+          counts,
+          items: [item({ id: 'sent-1', title: 'Needs a size', status: 'draft' })],
+        });
+      }),
+    );
+    render(<AdminQueue status="pending_approval" now={now} />);
+    expect(await screen.findByRole('heading', { name: 'Needs a size' })).toBeTruthy();
+    expect(called).toContain('status=sent_back');
+    expect(called).not.toContain('status=draft');
+    const card = screen
+      .getAllByRole('link', { name: /Sent back/ })
+      .find(
+        (link) =>
+          link.getAttribute('href') === '/admin?status=sent_back' && within(link).queryByText('1'),
+      );
+    expect(card).toBeDefined();
+    expect(within(card!).queryByText('4')).toBeNull();
   });
 });

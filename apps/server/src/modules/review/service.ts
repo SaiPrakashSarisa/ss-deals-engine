@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import { paiseToRupees } from '@ss-deals/core';
 import { affiliateLinks, deals, products, publications, users } from '../../db/schema/index.js';
 import type { Database } from '../../lib/db.js';
@@ -75,20 +75,26 @@ function highlightsOf(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === 'string');
 }
 
+export type AdminListStatus = DealStatus | 'sent_back';
+
+export type AdminDealCounts = Record<DealStatus, number> & { sent_back: number };
+
+const sentBack = and(eq(deals.status, 'draft'), isNotNull(deals.reviewNote));
+
 export async function listAdminDeals(
   db: ReviewDb,
   filter: {
-    status?: DealStatus;
+    status?: AdminListStatus;
     page?: number;
     pageSize?: number;
   },
-): Promise<{ counts: Record<DealStatus, number>; items: AdminDealListItem[] }> {
+): Promise<{ counts: AdminDealCounts; items: AdminDealListItem[] }> {
   const status = filter.status ?? 'pending_approval';
   const page = Math.max(1, filter.page ?? 1);
   const pageSize = Math.min(50, Math.max(1, filter.pageSize ?? 20));
   const offset = (page - 1) * pageSize;
 
-  const counts: Record<DealStatus, number> = {
+  const counts: AdminDealCounts = {
     pending_approval: 0,
     approved: 0,
     draft: 0,
@@ -96,6 +102,7 @@ export async function listAdminDeals(
     published: 0,
     failed: 0,
     scheduled: 0,
+    sent_back: 0,
   };
 
   const countRows = await db
@@ -108,6 +115,12 @@ export async function listAdminDeals(
       counts[row.status] = Number(row.count);
     }
   }
+
+  const [sentBackCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(deals)
+    .where(sentBack);
+  counts.sent_back = Number(sentBackCount?.count ?? 0);
 
   const query = db
     .select({
@@ -128,7 +141,7 @@ export async function listAdminDeals(
     })
     .from(deals)
     .innerJoin(users, eq(users.id, deals.createdBy))
-    .where(eq(deals.status, status));
+    .where(status === 'sent_back' ? sentBack : eq(deals.status, status));
 
   if (status === 'pending_approval') {
     query.orderBy(

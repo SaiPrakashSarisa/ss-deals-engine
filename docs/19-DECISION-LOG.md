@@ -175,3 +175,7 @@ An admin can change a deal only while it is waiting for review or approved. The 
 ### Decisions go through the status map
 
 Approve, send back, reject, reopen, and unapprove call `assertTransition`. Unapprove is the added move from `approved` back to `pending_approval`. Approve re-checks the active-deal rule and `evaluateRepost`, then stores the shared caption as the only current content draft. A later edit of an approved deal writes the next version. A withdrawn deal answers `409` with "This deal was withdrawn or changed." Publish and schedule are not in this step.
+
+## 2026-11-08 — Sent back is a draft with a note
+
+`GET /api/admin/deals?status=sent_back` lists deals whose status is `draft` and whose `review_note` is set. `counts.sent_back` uses that same rule. A draft that was never submitted, and a draft the creator withdrew before review, stay out of that count and out of the admin list. Sending the deal for review again moves it to `pending_approval`, so it leaves the count even if the note is still stored.

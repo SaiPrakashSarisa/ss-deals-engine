@@ -1,5 +1,6 @@
 'use client';
 
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { formatPaise } from '../../lib/money';
 import { timeAgo } from './time-ago';
@@ -8,12 +9,17 @@ import type { AdminListItem } from './types';
 const filters = [
   { status: 'pending_approval', label: 'Waiting for review' },
   { status: 'approved', label: 'Approved' },
-  { status: 'draft', label: 'Sent back' },
+  { status: 'sent_back', label: 'Sent back' },
   { status: 'published', label: 'Posted' },
   { status: 'rejected', label: 'Rejected' },
   { status: 'scheduled', label: 'Scheduled' },
   { status: 'failed', label: 'Could not post' },
 ] as const;
+
+function queueStatus(requested: string | null, fallback: string): string {
+  const value = requested !== null && requested.length > 0 ? requested : fallback;
+  return value === 'draft' ? 'sent_back' : value;
+}
 
 const summary = filters.slice(0, 5);
 
@@ -23,6 +29,8 @@ type QueueBody = {
 };
 
 export function AdminQueue({ status, now = Date.now() }: { status: string; now?: number }) {
+  const requested = useSearchParams().get('status');
+  const active = queueStatus(requested, status);
   const [state, setState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [items, setItems] = useState<AdminListItem[]>([]);
@@ -33,7 +41,7 @@ export function AdminQueue({ status, now = Date.now() }: { status: string; now?:
     setState('loading');
     void (async () => {
       try {
-        const response = await fetch(`/api/admin/deals?status=${encodeURIComponent(status)}`);
+        const response = await fetch(`/api/admin/deals?status=${encodeURIComponent(active)}`);
         const body = (await response.json().catch(() => null)) as QueueBody | null;
         if (cancelled) {
           return;
@@ -54,7 +62,7 @@ export function AdminQueue({ status, now = Date.now() }: { status: string; now?:
     return () => {
       cancelled = true;
     };
-  }, [status, reloadKey]);
+  }, [active, reloadKey]);
 
   return (
     <section>
@@ -64,9 +72,9 @@ export function AdminQueue({ status, now = Date.now() }: { status: string; now?:
           <a
             key={card.status}
             href={`/admin?status=${card.status}`}
-            aria-current={card.status === status ? 'page' : undefined}
+            aria-current={card.status === active ? 'page' : undefined}
             className={`rounded-2xl border-2 bg-white p-4 ${
-              card.status === status ? 'border-primary' : 'border-line'
+              card.status === active ? 'border-primary' : 'border-line'
             }`}
           >
             <p className="text-base font-semibold">{card.label}</p>
@@ -80,9 +88,9 @@ export function AdminQueue({ status, now = Date.now() }: { status: string; now?:
             key={filter.status}
             href={`/admin?status=${filter.status}`}
             role="tab"
-            aria-selected={filter.status === status}
+            aria-selected={filter.status === active}
             className={`inline-flex min-h-12 items-center rounded-xl px-4 text-lg font-semibold ${
-              filter.status === status
+              filter.status === active
                 ? 'bg-primary text-white'
                 : 'border-2 border-primary text-primary'
             }`}

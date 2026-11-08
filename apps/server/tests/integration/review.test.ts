@@ -471,6 +471,7 @@ describe.skipIf(databaseUrl === '')('admin review http api', () => {
       published: 1,
       failed: 1,
       scheduled: 0,
+      sent_back: 0,
     });
 
     // Default status filter is pending_approval
@@ -1342,5 +1343,89 @@ describe.skipIf(databaseUrl === '')('admin review http api', () => {
       'deal.admin_update',
       'deal.unapprove',
     ]);
+  });
+
+  it('counts a sent-back deal and ignores drafts that were never reviewed', async () => {
+    const adminCookie = await login('ada');
+    const graceCookie = await login('grace');
+
+    await seedDeal({
+      asin: 'B0NEVER001',
+      createdBy: graceId,
+      status: 'draft',
+      title: 'Never sent',
+      pricePaise: 10000,
+    });
+
+    const { deal: waiting } = await seedDeal({
+      asin: 'B0WITHDR01',
+      createdBy: graceId,
+      status: 'pending_approval',
+      title: 'Pulled back',
+      pricePaise: 11000,
+    });
+    const withdrawn = await server().inject({
+      method: 'POST',
+      url: `/api/deals/${waiting.id}/withdraw`,
+      headers: writeHeaders(graceCookie),
+    });
+    expect(withdrawn.statusCode).toBe(200);
+
+    const { deal: queued } = await seedDeal({
+      asin: 'B0SENTB001',
+      createdBy: graceId,
+      status: 'pending_approval',
+      title: 'Needs a size',
+      pricePaise: 12000,
+    });
+    const current = await adminDetail(adminCookie, queued.id);
+    const sent = await server().inject({
+      method: 'POST',
+      url: `/api/admin/deals/${queued.id}/send-back`,
+      headers: writeHeaders(adminCookie),
+      payload: { updatedAt: current.updatedAt, note: 'Please add the size.' },
+    });
+    expect(sent.statusCode).toBe(200);
+
+    const listed = await server().inject({
+      method: 'GET',
+      url: '/api/admin/deals?status=sent_back',
+      headers: { cookie: adminCookie },
+    });
+    expect(listed.statusCode).toBe(200);
+    const body = listed.json();
+    expect(body.counts.sent_back).toBe(1);
+    expect(body.counts.draft).toBe(3);
+    expect(body.items.map((item: { title: string }) => item.title)).toEqual(['Needs a size']);
+
+    const edited = await server().inject({
+      method: 'PATCH',
+      url: `/api/deals/${queued.id}`,
+      headers: writeHeaders(graceCookie),
+      payload: {
+        productUrl: 'https://www.amazon.in/dp/B0SENTB001',
+        title: 'Needs a size, 1 L',
+        price: '1200',
+        highlights: [],
+      },
+    });
+    expect(edited.statusCode).toBe(200);
+
+    const again = await server().inject({
+      method: 'POST',
+      url: `/api/deals/${queued.id}/submit`,
+      headers: writeHeaders(graceCookie),
+    });
+    expect(again.statusCode).toBe(200);
+    expect(again.json().deal.status).toBe('pending_approval');
+
+    const after = await server().inject({
+      method: 'GET',
+      url: '/api/admin/deals?status=sent_back',
+      headers: { cookie: adminCookie },
+    });
+    expect(after.statusCode).toBe(200);
+    expect(after.json().counts.sent_back).toBe(0);
+    expect(after.json().items).toEqual([]);
   });
 });
