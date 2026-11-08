@@ -188,11 +188,42 @@ describe.skipIf(databaseUrl === '')('scheduler', () => {
     clock.now = new Date(clock.now.getTime() + 60_000);
     expect((await tick()).kind).toBe('limited');
     const [waiting] = await database()
-      .select({ status: publications.status })
+      .select({
+        status: publications.status,
+        scheduledFor: publications.scheduledFor,
+        lastError: publications.lastError,
+      })
       .from(publications)
       .where(eq(publications.dealId, blocked.id));
     expect(waiting?.status).toBe('queued');
+    expect(waiting?.lastError).toBe("Waiting for tomorrow's limit");
+    expect(waiting?.scheduledFor?.toISOString()).toBe('2026-11-08T19:00:00.000Z');
+    const overdue = await seedApproved('B0LATE0001', 'Overdue');
+    expect(
+      (await schedule(server(), laterAdmin, overdue, new Date(clock.now.getTime() + 60_000)))
+        .statusCode,
+    ).toBe(200);
+    await database()
+      .update(publications)
+      .set({ scheduledFor: new Date(clock.now.getTime() - 4 * 60 * 60_000) })
+      .where(eq(publications.dealId, overdue.id));
+    expect(await tick()).toMatchObject({ kind: 'missed', count: 1 });
+    const [overdueDeal] = await database()
+      .select({ status: deals.status, reviewNote: deals.reviewNote })
+      .from(deals)
+      .where(eq(deals.id, overdue.id));
+    expect(overdueDeal).toMatchObject({
+      status: 'approved',
+      reviewNote: 'Missed its scheduled time (the server was off or paused)',
+    });
     clock.now = new Date('2026-11-08T18:40:00.000Z');
+    expect((await tick()).kind).toBe('idle');
+    const [stillQueued] = await database()
+      .select({ status: deals.status })
+      .from(deals)
+      .where(eq(deals.id, blocked.id));
+    expect(stillQueued?.status).toBe('scheduled');
+    clock.now = new Date('2026-11-08T19:00:00.000Z');
     expect((await tick()).kind).toBe('sent');
 
     await database().delete(settings);
@@ -416,6 +447,7 @@ describe.skipIf(databaseUrl === '')('scheduler', () => {
     });
     expect(saved.statusCode).toBe(200);
     expect(saved.json().dailyLimit).toBe(4);
+    expect(saved.json().minGapMinutes).toBe(10);
     expect(saved.json()).toMatchObject({
       queued: expect.any(Number),
       uncertain: expect.any(Number),

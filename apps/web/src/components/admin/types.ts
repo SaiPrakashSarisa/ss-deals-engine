@@ -64,4 +64,5 @@ export type PublishingStatus = {
   nextScheduled: string | null;
   queued: number;
   uncertain: number;
+  minGapMinutes: number;
 };

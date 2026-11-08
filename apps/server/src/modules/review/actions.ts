@@ -253,13 +253,11 @@ async function assertRepostAllowed(
       lastPublication === undefined ? null : { postedPricePaise: lastPublication.postedPricePaise },
     newPricePaise: pricePaise,
   });
+  if (decision.reason === 'previous_price_unknown') {
+    return;
+  }
   if (!decision.allowed && decision.reason !== 'first_post') {
-    throw new DealHttpError(
-      409,
-      repostRefusalMessage(
-        decision.reason === 'price_not_lower' ? 'price_not_lower' : 'previous_price_unknown',
-      ),
-    );
+    throw new DealHttpError(409, repostRefusalMessage('price_not_lower'));
   }
 }
 

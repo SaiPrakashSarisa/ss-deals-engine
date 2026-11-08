@@ -197,3 +197,7 @@ The worker posts one due deal at a time and holds a database advisory lock for t
 ## 2026-11-08 — Quick-post history import
 
 `import:quickpost` reads the bot's `posted.json` and records each ASIN as an already published product. The publication origin is `quickpost_import` and `posted_price_paise` is null, so a later post needs the admin's unknown-price confirmation. Those deals use `source_note` `quickpost_import` and stay out of the admin queue counts. They do not count toward the daily post limit. The publishing history labels them Imported. No schema change was required.
+
+## 2026-11-08 — Unknown price, the daily limit, and the gap
+
+An admin can create a draft for a product whose earlier posted price is missing by sending `confirmUnknownPrice: true`. The audit row records that confirmation. A person who is not an admin still cannot create that draft, and sending the flag does not change the refusal. Approval of that deal can proceed. Publish now still asks for its own confirmation. A queued post blocked by the daily limit is moved to the next India day plus the minimum gap and keeps the note "Waiting for tomorrow's limit". The late window drops a post only when the delay comes from the server being off or publishing being paused. `GET /api/admin/publishing/status` includes `minGapMinutes`, and the settings form shows that saved value.

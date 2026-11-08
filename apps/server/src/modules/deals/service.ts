@@ -209,10 +209,12 @@ async function latestPublishedPrice(
 
 async function assertCreatable(
   db: DealDb,
+  user: AuthUser,
   productId: string,
   pricePaise: number,
+  confirmUnknownPrice: boolean,
   exceptDealId?: string,
-): Promise<void> {
+): Promise<boolean> {
   if (await hasActiveDeal(db, productId, exceptDealId)) {
     throw new DealHttpError(409, ACTIVE_DEAL_MESSAGE);
   }
@@ -220,14 +222,16 @@ async function assertCreatable(
     previous: await latestPublishedPrice(db, productId),
     newPricePaise: pricePaise,
   });
-  if (!decision.allowed && decision.reason !== 'first_post') {
-    throw new DealHttpError(
-      409,
-      repostRefusalMessage(
-        decision.reason === 'price_not_lower' ? 'price_not_lower' : 'previous_price_unknown',
-      ),
-    );
+  if (decision.reason === 'previous_price_unknown') {
+    if (user.role === 'owner' && confirmUnknownPrice) {
+      return true;
+    }
+    throw new DealHttpError(409, repostRefusalMessage('previous_price_unknown'));
   }
+  if (!decision.allowed && decision.reason !== 'first_post') {
+    throw new DealHttpError(409, repostRefusalMessage('price_not_lower'));
+  }
+  return false;
 }
 
 async function upsertProduct(
@@ -255,18 +259,33 @@ async function upsertProduct(
 
 async function prepareProduct(
   db: DealDb,
+  user: AuthUser,
   input: DealInput,
   exceptDealId?: string,
-): Promise<{ id: string }> {
+): Promise<{ id: string; confirmedUnknownPrice: boolean }> {
   const existing = await findProduct(db, input.asin);
+  let confirmedUnknownPrice = false;
   if (existing !== undefined) {
-    await assertCreatable(db, existing.id, input.pricePaise, exceptDealId);
+    confirmedUnknownPrice = await assertCreatable(
+      db,
+      user,
+      existing.id,
+      input.pricePaise,
+      input.confirmUnknownPrice,
+      exceptDealId,
+    );
   }
   const product = await upsertProduct(db, input);
   if (existing === undefined) {
-    await assertCreatable(db, product.id, input.pricePaise, exceptDealId);
+    confirmedUnknownPrice = await assertCreatable(
+      db,
+      user,
+      product.id,
+      input.pricePaise,
+      input.confirmUnknownPrice,
+    );
   }
-  return product;
+  return { id: product.id, confirmedUnknownPrice };
 }
 
 async function insertLink(
@@ -382,6 +401,7 @@ export async function checkProductUrl(
       previousPricePaise: null,
       newPricePaise: null,
       taggedUrl: null,
+      allowUnknownPriceConfirm: false,
     };
   }
 
@@ -430,6 +450,7 @@ export async function checkProductUrl(
     previousPricePaise: previous?.postedPricePaise ?? null,
     newPricePaise: input.pricePaise,
     taggedUrl: parsed.url,
+    allowUnknownPriceConfirm: user.role === 'owner' && classified.code === 'posted_unknown_price',
   };
 }
 
@@ -441,7 +462,7 @@ export async function createDraft(
 ): Promise<DealJson> {
   return runWrite(() =>
     transaction(db, async (tx) => {
-      const product = await prepareProduct(tx, input);
+      const product = await prepareProduct(tx, user, input);
       const link = await insertLink(tx, input, product.id, user.id, amazonTag);
       const [created] = await tx
         .insert(deals)
@@ -461,7 +482,11 @@ export async function createDraft(
         action: 'deal.create',
         entityType: 'deal',
         entityId: created.id,
-        details: { productId: product.id, status: 'draft' },
+        details: {
+          productId: product.id,
+          status: 'draft',
+          ...(product.confirmedUnknownPrice ? { confirmUnknownPrice: true } : {}),
+        },
       });
       const row = await loadDeal(tx, created.id);
       if (row === undefined) {
@@ -482,7 +507,7 @@ export async function updateDraft(
   return runWrite(() =>
     transaction(db, async (tx) => {
       const current = await requireOwnDraft(tx, user, id);
-      const product = await prepareProduct(tx, input, id);
+      const product = await prepareProduct(tx, user, input, id);
       let linkId = current.linkId;
       if (product.id === current.productId) {
         await tx
@@ -513,7 +538,11 @@ export async function updateDraft(
         action: 'deal.update',
         entityType: 'deal',
         entityId: id,
-        details: { productId: product.id, status: 'draft' },
+        details: {
+          productId: product.id,
+          status: 'draft',
+          ...(product.confirmedUnknownPrice ? { confirmUnknownPrice: true } : {}),
+        },
       });
       const row = await loadDeal(tx, id);
       if (row === undefined) {
@@ -529,6 +558,7 @@ export async function submitDraft(
   user: AuthUser,
   id: string,
   now: Date,
+  confirmUnknownPrice = false,
 ): Promise<DealJson> {
   return runWrite(() =>
     transaction(db, async (tx) => {
@@ -551,7 +581,14 @@ export async function submitDraft(
       if (Object.keys(fields).length > 0) {
         throw new DealHttpError(400, 'Check the highlighted fields.', fields);
       }
-      await assertCreatable(tx, current.productId, current.pricePaise, id);
+      const confirmedUnknownPrice = await assertCreatable(
+        tx,
+        user,
+        current.productId,
+        current.pricePaise,
+        confirmUnknownPrice,
+        id,
+      );
       const updated = await tx
         .update(deals)
         .set({ status: 'pending_approval', submittedAt: now })
@@ -573,7 +610,11 @@ export async function submitDraft(
         action: 'deal.submit',
         entityType: 'deal',
         entityId: id,
-        details: { from: 'draft', to: 'pending_approval' },
+        details: {
+          from: 'draft',
+          to: 'pending_approval',
+          ...(confirmedUnknownPrice ? { confirmUnknownPrice: true } : {}),
+        },
       });
       const row = await loadDeal(tx, id);
       if (row === undefined) {

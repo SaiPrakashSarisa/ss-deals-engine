@@ -54,6 +54,9 @@ export function PublishingDesk() {
         const list = (await listResponse.json()) as { items?: PublicationItem[] };
         setStatus(next);
         setDailyLimit(String(next.dailyLimit));
+        if (typeof next.minGapMinutes === 'number') {
+          setMinGapMinutes(String(next.minGapMinutes));
+        }
         setItems(list.items ?? []);
       })
       .catch(() => {
@@ -93,6 +96,9 @@ export function PublishingDesk() {
       const next = (await response.json()) as PublishingStatus;
       setStatus(next);
       setDailyLimit(String(next.dailyLimit));
+      if (typeof next.minGapMinutes === 'number') {
+        setMinGapMinutes(String(next.minGapMinutes));
+      }
     } catch {
       setError('That change could not be saved.');
     } finally {

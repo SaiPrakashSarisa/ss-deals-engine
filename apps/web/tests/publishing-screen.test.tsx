@@ -59,6 +59,7 @@ const statusBody = {
   nextScheduled: null,
   queued: 0,
   uncertain: 0,
+  minGapMinutes: 15,
 };
 
 describe('publishing screens', () => {
@@ -221,6 +222,33 @@ describe('publishing screens', () => {
     expect(calls[0]).toContain('"posted"');
   });
 
+  it('shows a post that is waiting for the next day', async () => {
+    stub(async (url) => {
+      if (url.includes('/api/admin/publications?')) {
+        return json({
+          items: [
+            {
+              id: 'pub-wait',
+              dealId: 'deal-1',
+              title: 'Blue kettle',
+              status: 'queued',
+              mode: 'text',
+              origin: 'app',
+              lastError: "Waiting for tomorrow's limit",
+              externalMessageId: null,
+              publishedAt: null,
+              scheduledFor: '2026-11-09T00:30:00.000Z',
+              createdAt: '2026-11-08T18:21:00.000Z',
+            },
+          ],
+        });
+      }
+      return json({ items: [] });
+    });
+    render(<ReviewScreen initialDeal={deal({ status: 'scheduled' })} />);
+    expect(await screen.findByText("Waiting for tomorrow's limit")).toBeTruthy();
+  });
+
   it('shows paused and repost refusals', async () => {
     const user = userEvent.setup();
     let posts = 0;
@@ -298,6 +326,7 @@ describe('publishing screens', () => {
     expect(screen.getByText('Posted today: 1 of 8')).toBeTruthy();
     expect(screen.getByText('Uncertain: 2')).toBeTruthy();
     expect(screen.getByText('Channel: @deals_channel')).toBeTruthy();
+    expect((screen.getByLabelText('Minimum gap in minutes') as HTMLInputElement).value).toBe('15');
     expect(screen.getByText(/Imported/)).toBeTruthy();
     expect(screen.getByText('Telegram rejected the post.')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Next' }));

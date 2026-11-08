@@ -70,6 +70,8 @@ export function DealForm({
   const [taggedUrl, setTaggedUrl] = useState<string | null>(null);
   const [banner, setBanner] = useState<UrlBanner | undefined>();
   const [code, setCode] = useState<string | null>(null);
+  const [allowUnknownPriceConfirm, setAllowUnknownPriceConfirm] = useState(false);
+  const [unknownConfirmed, setUnknownConfirmed] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
@@ -194,6 +196,8 @@ export function DealForm({
     if (trimmed.length === 0) {
       setBanner(undefined);
       setCode(null);
+      setAllowUnknownPriceConfirm(false);
+      setUnknownConfirmed(false);
       setTaggedUrl(null);
       return;
     }
@@ -216,6 +220,7 @@ export function DealForm({
             previousPricePaise?: number | null;
             newPricePaise?: number | null;
             taggedUrl?: string | null;
+            allowUnknownPriceConfirm?: boolean;
             error?: unknown;
           })
         | null;
@@ -224,6 +229,8 @@ export function DealForm({
       }
       if (!response.ok || body === null || typeof body.code !== 'string') {
         setCode(null);
+        setAllowUnknownPriceConfirm(false);
+        setUnknownConfirmed(false);
         setBanner({
           tone: 'bad',
           text:
@@ -232,6 +239,11 @@ export function DealForm({
         return;
       }
       setCode(body.code);
+      const allowed = body.allowUnknownPriceConfirm === true;
+      setAllowUnknownPriceConfirm(allowed);
+      if (!allowed) {
+        setUnknownConfirmed(false);
+      }
       setTaggedUrl(typeof body.taggedUrl === 'string' ? body.taggedUrl : null);
       setBanner(
         bannerForCheck({
@@ -247,6 +259,8 @@ export function DealForm({
     } catch {
       if (seq === checkSeq.current) {
         setCode(null);
+        setAllowUnknownPriceConfirm(false);
+        setUnknownConfirmed(false);
         setBanner({ tone: 'bad', text: 'The product link could not be checked.' });
       }
     }
@@ -315,7 +329,8 @@ export function DealForm({
       shortLinkHosts,
     );
     setFieldErrors(fields);
-    if (Object.keys(fields).length > 0 || !checkAllowsSave(code)) {
+    const confirmed = allowUnknownPriceConfirm && unknownConfirmed;
+    if (Object.keys(fields).length > 0 || !checkAllowsSave(code, confirmed)) {
       if (Object.keys(fields).length > 0) {
         setFormError('Check the highlighted fields.');
       }
@@ -334,6 +349,7 @@ export function DealForm({
         shortLink,
         sourceNote,
         clerkNotes: notes,
+        ...(confirmed ? { confirmUnknownPrice: true } : {}),
       };
       const path = dealId === undefined ? '/api/deals' : `/api/deals/${dealId}`;
       const method = dealId === undefined ? 'POST' : 'PATCH';
@@ -384,7 +400,15 @@ export function DealForm({
       }
 
       if (intent === 'review') {
-        const submitted = await fetch(`/api/deals/${id}/submit`, { method: 'POST' });
+        const submitted = await fetch(`/api/deals/${id}/submit`, {
+          method: 'POST',
+          ...(confirmed
+            ? {
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ confirmUnknownPrice: true }),
+              }
+            : {}),
+        });
         const submittedBody = (await submitted.json().catch(() => null)) as ErrorBody | null;
         if (!submitted.ok) {
           applyError(submitted.status, submittedBody);
@@ -433,7 +457,11 @@ export function DealForm({
     (existingImage && !removeExisting && dealId !== undefined
       ? dealImageSrc(dealId, imageUpdatedAt)
       : undefined);
-  const canSave = checkAllowsSave(code) && pending === undefined && !loading && !locked;
+  const canSave =
+    checkAllowsSave(code, allowUnknownPriceConfirm && unknownConfirmed) &&
+    pending === undefined &&
+    !loading &&
+    !locked;
   const toneClass = {
     good: 'border-green-700 bg-green-50',
     calm: 'border-slate-400 bg-slate-50',
@@ -523,7 +551,19 @@ export function DealForm({
             className={`rounded-xl border-2 px-4 py-3 text-lg ${toneClass[banner.tone]}`}
           >
             <p className="font-semibold">{banner.text}</p>
-            {banner.detail !== undefined ? <p className="mt-1">{banner.detail}</p> : null}
+            {banner.detail !== undefined && !allowUnknownPriceConfirm ? (
+              <p className="mt-1">{banner.detail}</p>
+            ) : null}
+            {allowUnknownPriceConfirm ? (
+              <label className="mt-3 flex min-h-14 items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={unknownConfirmed}
+                  onChange={(event) => setUnknownConfirmed(event.target.checked)}
+                />
+                I checked the channel and this product was not posted recently
+              </label>
+            ) : null}
           </div>
         ) : null}
 

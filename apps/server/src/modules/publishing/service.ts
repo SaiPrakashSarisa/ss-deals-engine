@@ -43,6 +43,7 @@ import {
   SETTINGS_INVALID,
   STOPPED_WHILE_POSTING,
   UNKNOWN_PRICE,
+  WAITING_FOR_LIMIT,
 } from './messages.js';
 import { retryDelayMs } from './retry.js';
 import {
@@ -207,6 +208,7 @@ export async function publishingStatus(
   nextScheduled: string | null;
   queued: number;
   uncertain: number;
+  minGapMinutes: number;
 }> {
   const limits = await readLimits(db, config);
   const [counts] = await db
@@ -226,6 +228,7 @@ export async function publishingStatus(
     nextScheduled: next instanceof Date ? next.toISOString() : null,
     queued: Number(counts?.queued ?? 0),
     uncertain: Number(counts?.uncertain ?? 0),
+    minGapMinutes: limits.minGapMinutes,
   };
 }
 
@@ -1109,6 +1112,30 @@ export async function recoverInterruptedPublishing(db: PublishDb, now: Date): Pr
   return rows.length;
 }
 
+function nextKolkataDay(now: Date, minGapMinutes: number): Date {
+  return new Date(kolkataDay(now).end.getTime() + minGapMinutes * 60_000);
+}
+
+async function holdDuePosts(
+  db: PublishDb,
+  now: Date,
+  maxLateMinutes: number,
+  scheduledFor: Date,
+  lastError: string | null,
+): Promise<void> {
+  const earliest = new Date(now.getTime() - maxLateMinutes * 60_000);
+  await db
+    .update(publications)
+    .set(lastError === null ? { scheduledFor } : { scheduledFor, lastError })
+    .where(
+      and(
+        eq(publications.status, 'queued'),
+        lte(publications.scheduledFor, now),
+        gte(publications.scheduledFor, earliest),
+      ),
+    );
+}
+
 async function releaseMissed(
   db: PublishDb,
   actor: PublishActor,
@@ -1247,6 +1274,29 @@ export async function publishNextDue(
   if (limits.paused) {
     return { kind: 'paused' };
   }
+  const limitFull = (await postedToday(db, actor.now)) >= limits.dailyLimit;
+  const [last] = await db
+    .select({ publishedAt: publications.publishedAt })
+    .from(publications)
+    .where(and(eq(publications.status, 'published'), isNotNull(publications.publishedAt)))
+    .orderBy(desc(publications.publishedAt))
+    .limit(1);
+  const gapEnds =
+    last?.publishedAt === null || last?.publishedAt === undefined
+      ? null
+      : new Date(last.publishedAt.getTime() + limits.minGapMinutes * 60_000);
+  const gapActive = gapEnds !== null && gapEnds.getTime() > actor.now.getTime();
+  if (limitFull) {
+    await holdDuePosts(
+      db,
+      actor.now,
+      limits.maxLateMinutes,
+      nextKolkataDay(actor.now, limits.minGapMinutes),
+      WAITING_FOR_LIMIT,
+    );
+  } else if (gapActive && gapEnds !== null) {
+    await holdDuePosts(db, actor.now, limits.maxLateMinutes, gapEnds, null);
+  }
   const missed = await releaseMissed(db, actor, limits.maxLateMinutes);
   if (missed > 0) {
     return { kind: 'missed', count: missed };
@@ -1259,20 +1309,10 @@ export async function publishNextDue(
   if (inflight !== undefined) {
     return { kind: 'busy' };
   }
-  if ((await postedToday(db, actor.now)) >= limits.dailyLimit) {
+  if (limitFull) {
     return { kind: 'limited' };
   }
-  const [last] = await db
-    .select({ publishedAt: publications.publishedAt })
-    .from(publications)
-    .where(and(eq(publications.status, 'published'), isNotNull(publications.publishedAt)))
-    .orderBy(desc(publications.publishedAt))
-    .limit(1);
-  if (
-    last?.publishedAt !== null &&
-    last?.publishedAt !== undefined &&
-    actor.now.getTime() - last.publishedAt.getTime() < limits.minGapMinutes * 60_000
-  ) {
+  if (gapActive) {
     return { kind: 'gap' };
   }
   const prepared = await transaction(db, async (tx) => claimDue(tx, actor, deps.config));

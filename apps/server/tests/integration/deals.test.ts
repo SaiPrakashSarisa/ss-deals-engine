@@ -2,7 +2,7 @@ import { access, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { FastifyInstance } from 'fastify';
@@ -453,6 +453,45 @@ describe.skipIf(databaseUrl === '')('deal http', () => {
     expect(unknown.statusCode).toBe(409);
     expect(String(unknown.json().error).toLowerCase()).toMatch(/admin/);
     expect(String(unknown.json().error).toLowerCase()).not.toMatch(/owner|clerk/);
+  });
+
+  it('lets an admin create a draft when the earlier posted price is missing', async () => {
+    await seedPublished('B0TEST1234', null, adaId);
+    const body = dealBody({ price: '100', oldPrice: '', confirmUnknownPrice: true });
+    const clerk = await postDeal(await login('grace'), body);
+    expect(clerk.statusCode).toBe(409);
+    expect(String(clerk.json().error)).toMatch(/Ask an admin/);
+    expect(
+      await database().select({ id: deals.id }).from(deals).where(eq(deals.status, 'draft')),
+    ).toHaveLength(0);
+
+    const admin = await login('ada');
+    const without = await postDeal(admin, dealBody({ price: '100', oldPrice: '' }));
+    expect(without.statusCode).toBe(409);
+
+    const created = await postDeal(admin, body);
+    expect(created.statusCode).toBe(201);
+    const dealId = created.json().deal.id as string;
+    const [audit] = await database()
+      .select({ details: auditLog.details })
+      .from(auditLog)
+      .where(and(eq(auditLog.action, 'deal.create'), eq(auditLog.entityId, dealId)));
+    expect(audit?.details).toMatchObject({ confirmUnknownPrice: true });
+
+    await truncate();
+    adaId = await insertUser('ada', 'owner');
+    graceId = await insertUser('grace', 'clerk');
+    await seedPublished('B0TEST5678', 200_000, adaId);
+    const lower = await postDeal(
+      await login('grace'),
+      dealBody({
+        productUrl: 'https://www.amazon.in/dp/B0TEST5678',
+        price: '1999',
+        oldPrice: '',
+        shortLink: '',
+      }),
+    );
+    expect(lower.statusCode).toBe(201);
   });
 
   it("keeps one person from reading or editing another person's deal", async () => {

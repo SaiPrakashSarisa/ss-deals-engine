@@ -213,7 +213,7 @@ export function registerDealRoutes(app: FastifyInstance, deps: DealRouteDeps): v
       return reply.code(404).send({ error: 'That deal was not found.' });
     }
     return handle(reply, async () => ({
-      deal: await submitDraft(deps.db, user, id, deps.now()),
+      deal: await submitDraft(deps.db, user, id, deps.now(), confirmUnknownPrice(request.body)),
     }));
   });
 
@@ -340,4 +340,13 @@ function readQuery(query: unknown, key: string): unknown {
     return undefined;
   }
   return (query as Record<string, unknown>)[key];
+}
+
+function confirmUnknownPrice(body: unknown): boolean {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    'confirmUnknownPrice' in body &&
+    (body as { confirmUnknownPrice?: unknown }).confirmUnknownPrice === true
+  );
 }

@@ -258,6 +258,51 @@ describe('DealForm', () => {
     expect(screen.getByRole('heading', { name: 'Edit deal' })).toBeTruthy();
   });
 
+  it('asks an admin to confirm an unknown earlier price before saving', async () => {
+    const user = userEvent.setup();
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const path = String(url);
+        if (path.endsWith('/config')) {
+          return Response.json({ shortLinkHosts: ['amzn.to'], maxUploadMb: 5 });
+        }
+        if (path.endsWith('/check-url')) {
+          return Response.json(
+            checkResponse({
+              code: 'posted_unknown_price',
+              allowUnknownPriceConfirm: true,
+              repost: { allowed: false, reason: 'previous_price_unknown' },
+            }),
+          );
+        }
+        calls.push(String(init?.body ?? ''));
+        return Response.json({ deal: { id: 'deal-2' } }, { status: 201 });
+      }),
+    );
+    render(<DealForm />);
+    await user.click(screen.getByLabelText(/^Product page URL/));
+    await user.paste('https://www.amazon.in/dp/B0TEST1234');
+    await user.type(screen.getByLabelText(/^Title/), 'Blue kettle');
+    await user.type(screen.getByLabelText(/^Price/), '100');
+    const box = await screen.findByRole('checkbox', {
+      name: 'I checked the channel and this product was not posted recently',
+    });
+    expect(screen.queryByText('Ask an admin to check the earlier price.')).toBeNull();
+    expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    await user.click(box);
+    expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    expect(await screen.findByText('Draft saved.')).toBeTruthy();
+    expect(calls[0]).toContain('"confirmUnknownPrice":true');
+    expect(document.body.textContent?.toLowerCase()).not.toMatch(/clerk|\bowner\b/);
+  });
+
   it('shows a clear page when the deal cannot be edited', async () => {
     vi.stubGlobal(
       'fetch',

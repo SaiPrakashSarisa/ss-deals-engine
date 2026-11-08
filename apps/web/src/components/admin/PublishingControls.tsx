@@ -375,6 +375,9 @@ export function PublishingControls({
       {deal.status === 'scheduled' && publication?.scheduledFor ? (
         <p className="text-lg">Scheduled for {formatIst(publication.scheduledFor)}.</p>
       ) : null}
+      {publication?.status === 'queued' && publication.lastError ? (
+        <p className="text-lg">{publication.lastError}</p>
+      ) : null}
       {publication?.status === 'published' && shownTime ? (
         <p className="text-lg">Posted {formatIst(publication.publishedAt)}.</p>
       ) : null}
