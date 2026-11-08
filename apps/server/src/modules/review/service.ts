@@ -80,6 +80,7 @@ export type AdminListStatus = DealStatus | 'sent_back';
 export type AdminDealCounts = Record<DealStatus, number> & { sent_back: number };
 
 const sentBack = and(eq(deals.status, 'draft'), isNotNull(deals.reviewNote));
+const notImported = sql`${deals.sourceNote} is distinct from 'quickpost_import'`;
 
 export async function listAdminDeals(
   db: ReviewDb,
@@ -108,6 +109,7 @@ export async function listAdminDeals(
   const countRows = await db
     .select({ status: deals.status, count: sql<number>`count(*)::int` })
     .from(deals)
+    .where(notImported)
     .groupBy(deals.status);
 
   for (const row of countRows) {
@@ -141,7 +143,7 @@ export async function listAdminDeals(
     })
     .from(deals)
     .innerJoin(users, eq(users.id, deals.createdBy))
-    .where(status === 'sent_back' ? sentBack : eq(deals.status, status));
+    .where(and(status === 'sent_back' ? sentBack : eq(deals.status, status), notImported));
 
   if (status === 'pending_approval') {
     query.orderBy(

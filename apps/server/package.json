@@ -24,7 +24,8 @@
     "user:create": "node --env-file-if-exists=../../.env --import tsx src/scripts/user-admin.ts create",
     "user:set-password": "node --env-file-if-exists=../../.env --import tsx src/scripts/user-admin.ts set-password",
     "user:set-name": "node --env-file-if-exists=../../.env --import tsx src/scripts/user-admin.ts set-name",
-    "user:deactivate": "node --env-file-if-exists=../../.env --import tsx src/scripts/user-admin.ts deactivate"
+    "user:deactivate": "node --env-file-if-exists=../../.env --import tsx src/scripts/user-admin.ts deactivate",
+    "import:quickpost": "node --env-file-if-exists=../../.env --import tsx src/scripts/import-quickpost.ts"
   },
   "dependencies": {
     "@fastify/multipart": "^10.1.6",

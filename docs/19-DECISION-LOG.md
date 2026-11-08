@@ -193,3 +193,7 @@ One publication row exists per channel and deal. A failed row is reused for the 
 ## 2026-11-08 — Scheduler
 
 The worker posts one due deal at a time and holds a database advisory lock for the whole send, so a second worker cannot post as well. Env values for the daily limit and the minimum gap are defaults. Pause, the limit, and the gap live in `settings` and an admin can change them. A rate limit waits for Telegram's `retry_after`. A failure before the request is sent waits 1 minute and then 5 minutes. The third send is the last, so the 15-minute step is not scheduled. `uncertain` is never retried. A `publishing` row that is still open after 2 minutes becomes `uncertain` with "Server stopped while posting. Check the channel." A deal that is more than `MAX_LATE_MINUTES` late goes back to `approved` and the queue row is deleted. There is still no schema change. The unique publication row is reused, and `scheduled_for` stores both the chosen time and a retry time.
+
+## 2026-11-08 — Quick-post history import
+
+`import:quickpost` reads the bot's `posted.json` and records each ASIN as an already published product. The publication origin is `quickpost_import` and `posted_price_paise` is null, so a later post needs the admin's unknown-price confirmation. Those deals use `source_note` `quickpost_import` and stay out of the admin queue counts. They do not count toward the daily post limit. The publishing history labels them Imported. No schema change was required.

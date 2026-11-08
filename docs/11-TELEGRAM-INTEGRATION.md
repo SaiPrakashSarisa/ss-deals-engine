@@ -106,6 +106,16 @@ A Telegram 429 waits for `retry_after` and tries that send once more. If it is s
 
 Previews live in memory. Restarting the bot drops them. The post log survives on disk.
 
+## Import the post log
+
+The server can copy `posted.json` into PostgreSQL so a product the bot already posted is covered by the repost rule:
+
+```bash
+pnpm --filter @ss-deals/server import:quickpost --file data/posted.json --admin-username <name> [--dry-run]
+```
+
+Each entry becomes a product, one tagged affiliate link, a published deal, a short content draft, and a published publication. The posted price is left empty, so publishing that product again asks the admin to confirm it was not posted recently. An ASIN that already has a published post is skipped. `--dry-run` prints how many entries would be imported and how many would be skipped, and it writes nothing. One bad entry is reported and the others still import. Running the command again creates nothing new. Imported deals stay out of the review queue and out of today's post count. The publishing history shows them as Imported.
+
 ## Server publisher
 
 The API and worker can post to the same kind of channel without using the quick-post bot. `PUBLISHING_ENABLED` defaults to false. When it is true, startup requires `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL` (`@username`) and exits if either is missing. The failure text does not include the token. Startup logs whether publishing is enabled and the channel name.
