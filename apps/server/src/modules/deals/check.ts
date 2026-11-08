@@ -24,6 +24,7 @@ export type UrlCheck = {
   newPricePaise: number | null;
   taggedUrl: string | null;
   allowUnknownPriceConfirm: boolean;
+  earlier: { id: string; postedAt: string | null; postedPricePaise: number | null } | null;
 };
 
 /**

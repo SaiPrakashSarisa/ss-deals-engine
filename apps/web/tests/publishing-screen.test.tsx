@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PublishingDesk } from '../src/components/admin/PublishingDesk';
@@ -116,19 +116,59 @@ describe('publishing screens', () => {
     });
     render(<ReviewScreen initialDeal={deal()} />);
     await user.click(screen.getByRole('button', { name: 'Publish now' }));
-    expect(await screen.findByText('Post this to @deals_channel?')).toBeTruthy();
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Post this deal to @deals_channel?')).toBeTruthy();
     expect(screen.queryByText(/SECRET/)).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Post it' }));
-    expect(await screen.findByRole('dialog', { name: 'Daily limit' })).toBeTruthy();
+    await user.click(within(dialog).getByRole('button', { name: 'Publish now' }));
+    expect(await screen.findByText("Today's post limit has been reached.")).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Override' }));
     const box = await screen.findByRole('checkbox', { name: /I checked the channel/ });
-    expect(screen.getByRole('button', { name: 'Post it' })).toHaveProperty('disabled', true);
+    expect(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Publish now' }),
+    ).toHaveProperty('disabled', true);
     await user.click(box);
-    await user.click(screen.getByRole('button', { name: 'Post it' }));
-    expect(await screen.findByText(/^Posted /)).toBeTruthy();
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Publish now' }),
+    );
+    expect(await screen.findByText('Posted')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'View post' }).getAttribute('href')).toBe(
+      'https://t.me/deals_channel/4',
+    );
     const last = calls.filter((call) => call.url.endsWith('/publish')).at(-1);
     expect(last?.body).toContain('"override":true');
     expect(last?.body).toContain('"confirmUnknownPrice":true');
+  });
+
+  it('traps focus in the publish dialog and keeps it open while sending', async () => {
+    const user = userEvent.setup();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    stub(async (url) => {
+      if (url.includes('/api/admin/publications?')) {
+        return json({ items: [] });
+      }
+      if (url.endsWith('/publishing/status')) {
+        return json(statusBody);
+      }
+      await gate;
+      return json({ error: 'Publishing is paused.' }, 409);
+    });
+    render(<ReviewScreen initialDeal={deal()} />);
+    await user.click(screen.getByRole('button', { name: 'Publish now' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await user.tab();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await user.click(within(dialog).getByRole('button', { name: 'Publish now' }));
+    expect(await screen.findByText('Posting to @deals_channel...')).toBeTruthy();
+    await user.keyboard('{Escape}');
+    expect(screen.getByText('Posting to @deals_channel...')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    release();
+    expect(await screen.findByText('Publishing is paused.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
   });
 
   it('limits the schedule picker to the next 7 days in India time and unschedules', async () => {
@@ -214,7 +254,9 @@ describe('publishing screens', () => {
       });
     });
     render(<ReviewScreen initialDeal={deal({ status: 'approved' })} />);
-    expect(await screen.findByText('Check the channel.')).toBeTruthy();
+    expect(
+      await screen.findByText('We could not confirm the post. Check the channel'),
+    ).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'It was posted' }));
     await user.type(screen.getByLabelText('Message id'), '9');
     await user.click(screen.getByRole('button', { name: 'It was posted' }));
@@ -272,12 +314,16 @@ describe('publishing screens', () => {
     });
     const { unmount } = render(<ReviewScreen initialDeal={deal()} />);
     await user.click(screen.getByRole('button', { name: 'Publish now' }));
-    await user.click(await screen.findByRole('button', { name: 'Post it' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Publish now' }));
     expect(await screen.findByText('Publishing is paused.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
     unmount();
     render(<ReviewScreen initialDeal={deal()} />);
     await user.click(screen.getByRole('button', { name: 'Publish now' }));
-    await user.click(await screen.findByRole('button', { name: 'Post it' }));
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Publish now' }),
+    );
     expect(
       await screen.findByText('The price is not lower than the last posted price.'),
     ).toBeTruthy();

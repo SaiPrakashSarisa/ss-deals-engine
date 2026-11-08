@@ -8,7 +8,8 @@ export const DAILY_LIMIT = "Today's post limit has been reached.";
 export const UNKNOWN_PRICE =
   'The earlier posted price is missing. Confirm that this product was not posted recently.';
 export const IN_FLIGHT = 'A post for this product is already in progress.';
-export const IMAGE_MISSING = 'The deal image could not be read.';
+export const IMAGE_MISSING =
+  'The image file could not be read by the publisher (check that the uploads folder is shared with the worker)';
 export const RECORD_FAILED =
   'The post reached Telegram, but it could not be recorded. Check the channel before trying again.';
 export const NOT_UNCERTAIN = 'Only an uncertain post can be resolved.';

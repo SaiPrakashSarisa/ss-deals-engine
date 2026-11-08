@@ -147,4 +147,47 @@ describe('AdminQueue', () => {
     expect(screen.getByRole('status').textContent).toContain('Sent back to Grace Hopper.');
     expect(navigation.replace).toHaveBeenCalledWith('/admin');
   });
+
+  it('lists scheduled deals by time with a status line', async () => {
+    search.value = 'status=scheduled';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo) => {
+        const url = String(input);
+        if (url.includes('/publications')) {
+          return json({
+            items: [
+              {
+                dealId: 'later',
+                scheduledFor: '2026-11-08T10:00:00.000Z',
+                statusLine: 'Waiting for the minimum gap (earliest 3:30 pm)',
+              },
+              {
+                dealId: 'sooner',
+                scheduledFor: '2026-11-08T08:45:00.000Z',
+                statusLine: "Waiting for tomorrow's limit",
+              },
+            ],
+          });
+        }
+        return json({
+          counts: { ...counts, scheduled: 2 },
+          items: [
+            item({ id: 'later', title: 'Later kettle', status: 'scheduled' }),
+            item({ id: 'sooner', title: 'Sooner kettle', status: 'scheduled' }),
+          ],
+        });
+      }),
+    );
+    render(<AdminQueue status="scheduled" now={now} />);
+    const sooner = await screen.findByRole('heading', { name: 'Sooner kettle' });
+    const later = screen.getByRole('heading', { name: 'Later kettle' });
+    expect(sooner.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("Waiting for tomorrow's limit")).toBeTruthy();
+    expect(screen.getAllByText(/Scheduled for/)).toHaveLength(2);
+    const card = screen
+      .getAllByRole('link', { name: /Scheduled/ })
+      .find((link) => within(link).queryByText('2'));
+    expect(card).toBeDefined();
+  });
 });

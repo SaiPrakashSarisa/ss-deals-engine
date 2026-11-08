@@ -53,6 +53,7 @@ export type PublicationItem = {
   publishedAt: string | null;
   scheduledFor: string | null;
   createdAt: string;
+  statusLine?: string | null;
 };
 
 export type PublishingStatus = {

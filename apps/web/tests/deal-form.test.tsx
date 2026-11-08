@@ -107,6 +107,9 @@ describe('DealForm', () => {
         if (String(url).endsWith('/config')) {
           return Response.json({ shortLinkHosts: ['amzn.to', 'link.amazon'], maxUploadMb: 5 });
         }
+        if (String(url).includes('/previous')) {
+          return Response.json({ error: 'That deal was not found.' }, { status: 404 });
+        }
         return Response.json(responses[Math.min(call++, responses.length - 1)]!);
       }),
     );
@@ -277,6 +280,9 @@ describe('DealForm', () => {
             }),
           );
         }
+        if (path.includes('/previous')) {
+          return Response.json({ error: 'That deal was not found.' }, { status: 404 });
+        }
         calls.push(String(init?.body ?? ''));
         return Response.json({ deal: { id: 'deal-2' } }, { status: 201 });
       }),
@@ -317,5 +323,71 @@ describe('DealForm', () => {
     expect(await screen.findByRole('heading', { name: "You can't edit this deal" })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
     expect(screen.getByRole('link', { name: 'My deals' }).getAttribute('href')).toBe('/deals/mine');
+  });
+
+  it('offers earlier details without copying the price', async () => {
+    const user = userEvent.setup();
+    const bodies: string[] = [];
+    const paths: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const path = String(url);
+        paths.push(path);
+        if (path.endsWith('/config')) {
+          return Response.json({ shortLinkHosts: ['amzn.to'], maxUploadMb: 5 });
+        }
+        if (path.endsWith('/check-url')) {
+          return Response.json(
+            checkResponse({
+              code: 'posted_lower',
+              previousPricePaise: 200_000,
+              newPricePaise: 149_900,
+            }),
+          );
+        }
+        if (path.includes('/previous')) {
+          return Response.json({
+            dealId: 'old-1',
+            title: 'Earlier kettle',
+            highlights: ['Steel'],
+            shortLink: 'https://amzn.to/old',
+            sourceNote: 'Old group',
+            previewEnabled: false,
+            hasImage: true,
+            postedAt: '2026-10-01T08:45:00.000Z',
+            postedPrice: 200_000,
+          });
+        }
+        if (path.includes('/copy-from/old-1')) {
+          return Response.json({ deal: { id: 'deal-9', hasImage: true } });
+        }
+        if (path.endsWith('/api/deals') && init?.method === 'POST') {
+          bodies.push(String(init.body));
+          return Response.json({ deal: { id: 'deal-9' } });
+        }
+        return Response.json({ error: 'unexpected' }, { status: 500 });
+      }),
+    );
+    render(<DealForm />);
+    await user.click(screen.getByLabelText(/^Product page URL/));
+    await user.paste('https://www.amazon.in/dp/B0TEST1234');
+    expect(await screen.findByText(/This product was posted before/)).toBeTruthy();
+    expect(screen.getByText(/1 Oct 2026 at/)).toBeTruthy();
+    await user.type(screen.getByLabelText(/^Price/), '1499');
+    await user.type(screen.getByLabelText(/^Old price/), '2000');
+    await user.type(screen.getByLabelText(/^Offer/), 'Bank');
+    await user.click(screen.getByRole('button', { name: 'Use earlier details' }));
+    expect((screen.getByLabelText(/^Title/) as HTMLInputElement).value).toBe('Earlier kettle');
+    expect((screen.getByLabelText(/^Price/) as HTMLInputElement).value).toBe('1499');
+    expect((screen.getByLabelText(/^Old price/) as HTMLInputElement).value).toBe('2000');
+    expect((screen.getByLabelText(/^Offer/) as HTMLInputElement).value).toBe('Bank');
+    expect((screen.getByLabelText('Found in group') as HTMLInputElement).value).toBe('Old group');
+    expect(document.activeElement).toBe(screen.getByLabelText(/^Price/));
+    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    expect(await screen.findByText('Draft saved.')).toBeTruthy();
+    expect(bodies[0]).toContain('"previewEnabled":false');
+    expect(bodies[0]).toContain('"price":"1499"');
+    expect(paths.some((path) => path.includes('/copy-from/old-1'))).toBe(true);
   });
 });

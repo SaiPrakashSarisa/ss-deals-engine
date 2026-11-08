@@ -108,6 +108,8 @@ services:
       retries: 3
       start_period: 15s
     stop_grace_period: 20s
+    volumes:
+      - uploads_data:/app/uploads
     restart: unless-stopped
 
   web:

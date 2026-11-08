@@ -51,6 +51,7 @@ export type DealInput = {
   sourceNote: string | null;
   clerkNotes: string | null;
   confirmUnknownPrice: boolean;
+  previewEnabled: boolean | null;
 };
 
 export type FieldFailure = {
@@ -142,6 +143,7 @@ const dealSchema = z.object({
   sourceNote: optionalText(120, SOURCE_NOTE_LENGTH_ERROR),
   clerkNotes: optionalText(300, NOTES_LENGTH_ERROR),
   confirmUnknownPrice: z.boolean().optional(),
+  previewEnabled: z.boolean().optional(),
 });
 
 const reviewEditSchema = dealSchema
@@ -274,6 +276,7 @@ export function parseDealBody(
       sourceNote: parsed.data.sourceNote ?? null,
       clerkNotes: parsed.data.clerkNotes ?? null,
       confirmUnknownPrice: parsed.data.confirmUnknownPrice === true,
+      previewEnabled: parsed.data.previewEnabled ?? null,
     },
   };
 }

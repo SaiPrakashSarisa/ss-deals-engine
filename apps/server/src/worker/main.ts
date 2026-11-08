@@ -1,3 +1,4 @@
+import { access, constants, stat } from 'node:fs/promises';
 import { writeFileSync } from 'node:fs';
 import { loadConfig } from '../config/env.js';
 import { createDb } from '../lib/db.js';
@@ -15,10 +16,33 @@ function writeHeartbeat(): void {
   writeFileSync(HEARTBEAT_PATH, `${Date.now()}\n`);
 }
 
+export async function verifyUploadDir(
+  uploadDir: string,
+  log: { error: (message: string) => void },
+): Promise<boolean> {
+  try {
+    await access(uploadDir, constants.R_OK);
+    const info = await stat(uploadDir);
+    if (!info.isDirectory()) {
+      log.error(`uploads folder is not readable: ${uploadDir}`);
+      return false;
+    }
+    return true;
+  } catch {
+    log.error(`uploads folder is not readable: ${uploadDir}`);
+    return false;
+  }
+}
+
 export async function startWorker(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config);
   logger.info(startupSummary(config), 'worker starting');
+  await verifyUploadDir(config.UPLOAD_DIR, {
+    error: (message) => {
+      logger.error(message);
+    },
+  });
 
   const { pool, db } = createDb(config.DATABASE_URL, logger);
   writeHeartbeat();

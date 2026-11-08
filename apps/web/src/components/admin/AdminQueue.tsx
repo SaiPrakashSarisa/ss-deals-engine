@@ -6,6 +6,7 @@ import { dealImageSrc } from '../deal-image';
 import { formatPaise } from '../../lib/money';
 import { reviewExitMessage } from './notices';
 import { timeAgo } from './time-ago';
+import { formatIstSchedule } from './ist';
 import type { AdminListItem } from './types';
 
 const filters = [
@@ -23,11 +24,22 @@ function queueStatus(requested: string | null, fallback: string): string {
   return value === 'draft' ? 'sent_back' : value;
 }
 
-const summary = filters.slice(0, 5);
+const summary = [filters[0], filters[1], filters[5], filters[2], filters[3], filters[4]];
+
+type QueueItem = AdminListItem & { scheduledFor?: string | null; statusLine?: string | null };
 
 type QueueBody = {
   counts?: Record<string, number>;
   items?: AdminListItem[];
+};
+
+type PublicationBody = {
+  items?: {
+    dealId?: string;
+    scheduledFor?: string | null;
+    statusLine?: string | null;
+    lastError?: string | null;
+  }[];
 };
 
 export function AdminQueue({ status, now = Date.now() }: { status: string; now?: number }) {
@@ -39,7 +51,7 @@ export function AdminQueue({ status, now = Date.now() }: { status: string; now?:
   const [flash, setFlash] = useState<string | undefined>();
   const [state, setState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [counts, setCounts] = useState<Record<string, number>>({});
-  const [items, setItems] = useState<AdminListItem[]>([]);
+  const [items, setItems] = useState<QueueItem[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -69,8 +81,32 @@ export function AdminQueue({ status, now = Date.now() }: { status: string; now?:
           setState('error');
           return;
         }
+        let next: QueueItem[] = body.items;
+        if (active === 'scheduled') {
+          const posts = await fetch('/api/admin/publications?status=queued&pageSize=50');
+          const listed = (await posts.json().catch(() => null)) as PublicationBody | null;
+          const byDeal = new Map(
+            (listed?.items ?? [])
+              .filter((item) => typeof item.dealId === 'string')
+              .map((item) => [item.dealId, item]),
+          );
+          next = [...body.items]
+            .map((item) => {
+              const post = byDeal.get(item.id);
+              return {
+                ...item,
+                scheduledFor: post?.scheduledFor ?? null,
+                statusLine: post?.statusLine ?? post?.lastError ?? null,
+              };
+            })
+            .sort((left, right) => {
+              const a = left.scheduledFor ?? '';
+              const b = right.scheduledFor ?? '';
+              return a.localeCompare(b);
+            });
+        }
         setCounts(body.counts ?? {});
-        setItems(body.items);
+        setItems(next);
         setState('ready');
       } catch {
         if (!cancelled) {
@@ -91,7 +127,7 @@ export function AdminQueue({ status, now = Date.now() }: { status: string; now?:
           {flash}
         </p>
       ) : null}
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {summary.map((card) => (
           <a
             key={card.status}
@@ -169,6 +205,12 @@ export function AdminQueue({ status, now = Date.now() }: { status: string; now?:
                   </p>
                   <p className="mt-1 text-lg">{deal.createdBy}</p>
                   <p className="text-lg">{timeAgo(deal.submittedAt, now)}</p>
+                  {deal.scheduledFor ? (
+                    <p className="mt-1 text-lg">
+                      Scheduled for {formatIstSchedule(deal.scheduledFor)} (IST)
+                    </p>
+                  ) : null}
+                  {deal.statusLine ? <p className="text-lg">{deal.statusLine}</p> : null}
                   {deal.sourceNote !== null && deal.sourceNote.trim() !== '' ? (
                     <p className="mt-1 text-lg">{deal.sourceNote}</p>
                   ) : null}

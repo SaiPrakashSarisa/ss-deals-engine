@@ -10,6 +10,7 @@ import {
   publishingStatus,
   resolvePublication,
   scheduleDeal,
+  scheduleWarnings,
   setPublishingPaused,
   unscheduleDeal,
   updatePublishingSettings,
@@ -141,11 +142,36 @@ export function registerPublishingRoutes(app: FastifyInstance, deps: PublishingR
     ) {
       return reply.code(400).send({ error: 'That status is not a publication status.' });
     }
-    return listPublications(deps.db, {
-      status: typeof status === 'string' && status.length > 0 ? status : undefined,
-      page: Number.isInteger(page) ? page : undefined,
-      pageSize: Number.isInteger(pageSize) ? pageSize : undefined,
-    });
+    return listPublications(
+      deps.db,
+      {
+        status: typeof status === 'string' && status.length > 0 ? status : undefined,
+        page: Number.isInteger(page) ? page : undefined,
+        pageSize: Number.isInteger(pageSize) ? pageSize : undefined,
+      },
+      now(),
+      deps.minGapMinutes,
+    );
+  });
+
+  app.get('/api/admin/publishing/schedule-hint', { preHandler: guard }, async (request, reply) => {
+    if (reply.sent || request.authUser === null || request.authUser.role !== 'owner') {
+      return;
+    }
+    const at = parseUpdatedAt(readQuery(request.query, 'at'));
+    if (at === undefined) {
+      return reply.code(400).send({ error: 'Choose a time.' });
+    }
+    const dealId = readQuery(request.query, 'dealId');
+    return {
+      warnings: await scheduleWarnings(
+        deps.db,
+        at,
+        settingsOf(deps),
+        now(),
+        typeof dealId === 'string' && dealId.length > 0 ? dealId : undefined,
+      ),
+    };
   });
 
   app.post('/api/admin/deals/:id/publish', { preHandler: guard }, async (request, reply) => {

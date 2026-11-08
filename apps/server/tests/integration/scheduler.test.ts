@@ -3,6 +3,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { FastifyInstance } from 'fastify';
 import path from 'node:path';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -22,6 +23,7 @@ import {
 import { hashPassword } from '../../src/modules/auth/password.js';
 import { runSchedulerTick } from '../../src/modules/publishing/scheduler.js';
 import { recoverInterruptedPublishing } from '../../src/modules/publishing/service.js';
+import { publicationStatusLine } from '../../src/modules/publishing/status-line.js';
 import type { TelegramClient, TelegramResult } from '../../src/modules/publishing/telegram.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL ?? '';
@@ -46,6 +48,7 @@ if (databaseUrl === '') {
 type Database = NodePgDatabase<typeof schema>;
 const clock = { now: new Date('2026-11-08T04:00:00.000Z') };
 const calls: string[] = [];
+const photoBytes: number[] = [];
 let nextResult: TelegramResult = { kind: 'ok', messageId: 21 };
 let releaseSend: (() => void) | undefined;
 let sendEntered: (() => void) | undefined;
@@ -63,7 +66,8 @@ const client: TelegramClient = {
     }
     return nextResult;
   },
-  async sendPhoto() {
+  async sendPhoto(input) {
+    photoBytes.push(input.bytes.byteLength);
     calls.push('photo');
     return nextResult;
   },
@@ -131,6 +135,7 @@ describe.skipIf(databaseUrl === '')('scheduler', () => {
   beforeEach(async () => {
     clock.now = new Date('2026-11-08T04:00:00.000Z');
     calls.length = 0;
+    photoBytes.length = 0;
     nextResult = { kind: 'ok', messageId: 21 };
     releaseSend = undefined;
     sendEntered = undefined;
@@ -197,7 +202,7 @@ describe.skipIf(databaseUrl === '')('scheduler', () => {
       .where(eq(publications.dealId, blocked.id));
     expect(waiting?.status).toBe('queued');
     expect(waiting?.lastError).toBe("Waiting for tomorrow's limit");
-    expect(waiting?.scheduledFor?.toISOString()).toBe('2026-11-08T19:00:00.000Z');
+    expect(waiting?.scheduledFor?.toISOString()).toBe('2026-11-08T18:21:00.000Z');
     const overdue = await seedApproved('B0LATE0001', 'Overdue');
     expect(
       (await schedule(server(), laterAdmin, overdue, new Date(clock.now.getTime() + 60_000)))
@@ -217,14 +222,13 @@ describe.skipIf(databaseUrl === '')('scheduler', () => {
       reviewNote: 'Missed its scheduled time (the server was off or paused)',
     });
     clock.now = new Date('2026-11-08T18:40:00.000Z');
-    expect((await tick()).kind).toBe('idle');
+    expect((await tick()).kind).toBe('sent');
     const [stillQueued] = await database()
       .select({ status: deals.status })
       .from(deals)
       .where(eq(deals.id, blocked.id));
-    expect(stillQueued?.status).toBe('scheduled');
-    clock.now = new Date('2026-11-08T19:00:00.000Z');
-    expect((await tick()).kind).toBe('sent');
+    expect(stillQueued?.status).toBe('published');
+    expect((await tick()).kind).not.toBe('sent');
 
     await database().delete(settings);
     const pausedDeal = await seedApproved('B0PAUSE001', 'Paused');
@@ -294,13 +298,16 @@ describe.skipIf(databaseUrl === '')('scheduler', () => {
     expect(calls).toHaveLength(1);
     let row = await publicationFor(retry.id);
     expect(row.attempts).toBe(1);
-    expect(row.scheduledFor?.getTime()).toBe(clock.now.getTime() + 60_000);
+    expect(row.scheduledFor?.toISOString()).toBe(clock.now.toISOString());
+    expect(row.lastError?.startsWith('retry:')).toBe(true);
     expect((await tick()).kind).toBe('idle');
     clock.now = new Date(clock.now.getTime() + 60_000);
     expect(sentStatus(await tick())).toBe('queued');
     row = await publicationFor(retry.id);
     expect(row.attempts).toBe(2);
-    expect(row.scheduledFor?.getTime()).toBe(clock.now.getTime() + 5 * 60_000);
+    expect(row.scheduledFor?.toISOString()).toBe(
+      new Date(clock.now.getTime() - 60_000).toISOString(),
+    );
     clock.now = new Date(clock.now.getTime() + 5 * 60_000);
     expect(sentStatus(await tick())).toBe('failed');
     expect(calls).toHaveLength(3);
@@ -478,6 +485,137 @@ describe.skipIf(databaseUrl === '')('scheduler', () => {
     expect(names).toContain('deal.schedule');
     expect(names).toContain('deal.unschedule');
     expect(names).toContain('publishing.settings');
+  });
+
+  it('posts a photo from the uploads folder and reports a missing file without a path', async () => {
+    const admin = await login(server(), 'ada');
+    const dir = '/tmp/ss-deals-scheduler';
+    await mkdir(dir, { recursive: true });
+    const filename = `${'a'.repeat(32)}.jpg`;
+    await writeFile(path.join(dir, filename), Buffer.from('photo-bytes'));
+    const pictured = await seedApproved('B0PHOTO001', 'Pictured');
+    await database()
+      .update(deals)
+      .set({ imagePath: filename, imageMime: 'image/jpeg' })
+      .where(eq(deals.id, pictured.id));
+    const [freshPicture] = await database()
+      .select({ id: deals.id, updatedAt: deals.updatedAt })
+      .from(deals)
+      .where(eq(deals.id, pictured.id));
+    if (freshPicture === undefined) {
+      throw new Error('pictured deal missing');
+    }
+    const booked = await schedule(server(), admin, freshPicture, minutesFromNow(1));
+    expect(booked.statusCode).toBe(200);
+    clock.now = minutesFromNow(1);
+    nextResult = { kind: 'ok', messageId: 44 };
+    expect(sentStatus(await tick())).toBe('published');
+    expect(photoBytes).toEqual([Buffer.from('photo-bytes').byteLength]);
+    expect(calls.at(-1)).toBe('photo');
+
+    const missing = await seedApproved('B0PHOTO002', 'Missing');
+    await database()
+      .update(deals)
+      .set({
+        imagePath: `${'b'.repeat(32)}.jpg`,
+        imageMime: 'image/jpeg',
+      })
+      .where(eq(deals.id, missing.id));
+    const [freshMissing] = await database()
+      .select({ id: deals.id, updatedAt: deals.updatedAt })
+      .from(deals)
+      .where(eq(deals.id, missing.id));
+    if (freshMissing === undefined) {
+      throw new Error('missing deal missing');
+    }
+    const missingBooked = await schedule(server(), admin, freshMissing, minutesFromNow(1));
+    expect(missingBooked.statusCode).toBe(200);
+    clock.now = minutesFromNow(1);
+    expect(sentStatus(await tick())).toBe('failed');
+    const failed = await publicationFor(missing.id);
+    expect(failed.lastError).toBe(
+      'The image file could not be read by the publisher (check that the uploads folder is shared with the worker)',
+    );
+    expect(failed.lastError).not.toContain(dir);
+    const [returned] = await database()
+      .select({ status: deals.status })
+      .from(deals)
+      .where(eq(deals.id, missing.id));
+    expect(returned?.status).toBe('approved');
+    await rm(path.join(dir, filename), { force: true });
+  });
+
+  it('keeps the chosen time, warns about the gap, and moves only for the next day', async () => {
+    const admin = await login(server(), 'ada');
+    const first = await seedApproved('B0FIRST001', 'First');
+    await schedule(server(), admin, first, minutesFromNow(1));
+    clock.now = minutesFromNow(1);
+    expect((await tick()).kind).toBe('sent');
+    await database().insert(settings).values({ key: 'min_gap_minutes', value: 30 });
+    const chosen = new Date(clock.now.getTime() + 60_000);
+    const held = await seedApproved('B0HELD0001', 'Held');
+    const booked = await schedule(server(), admin, held, chosen);
+    expect(booked.statusCode).toBe(200);
+    expect(booked.json().warnings).toEqual([
+      expect.objectContaining({
+        code: 'gap',
+        earliest: new Date(clock.now.getTime() + 30 * 60_000).toISOString(),
+      }),
+    ]);
+    const hint = await server().inject({
+      method: 'GET',
+      url: `/api/admin/publishing/schedule-hint?at=${encodeURIComponent(chosen.toISOString())}`,
+      headers: { cookie: admin, origin },
+    });
+    expect(hint.statusCode).toBe(200);
+    expect(hint.json().warnings[0].code).toBe('gap');
+    clock.now = new Date(chosen);
+    expect((await tick()).kind).toBe('gap');
+    const waiting = await publicationFor(held.id);
+    expect(waiting.scheduledFor?.toISOString()).toBe(chosen.toISOString());
+    expect(
+      publicationStatusLine({
+        status: 'queued',
+        lastError: waiting.lastError,
+        attempts: waiting.attempts,
+        scheduledFor: waiting.scheduledFor,
+        gapEnds: new Date(chosen.getTime() - 60_000 + 30 * 60_000),
+        now: clock.now,
+      }),
+    ).toBe('Waiting for the minimum gap (earliest 10:01 am)');
+
+    await database().delete(publications).where(eq(publications.dealId, held.id));
+    await database().delete(settings);
+    await database().insert(settings).values({ key: 'daily_limit', value: 1 });
+    clock.now = new Date('2026-11-08T08:44:00.000Z');
+    const laterAdmin = await login(server(), 'ada');
+    const afternoon = await seedApproved('B0MOVE0001', 'Afternoon');
+    const slot = new Date('2026-11-08T08:45:00.000Z');
+    expect((await schedule(server(), laterAdmin, afternoon, slot)).statusCode).toBe(200);
+    clock.now = slot;
+    expect((await tick()).kind).toBe('limited');
+    const moved = await publicationFor(afternoon.id);
+    expect(moved.scheduledFor?.toISOString()).toBe('2026-11-08T18:30:00.000Z');
+    expect(moved.lastError?.startsWith('moved:')).toBe(true);
+    expect(
+      publicationStatusLine({
+        status: 'queued',
+        lastError: moved.lastError,
+        attempts: 0,
+        scheduledFor: moved.scheduledFor,
+        gapEnds: null,
+        now: clock.now,
+      }),
+    ).toBe('Moved from 2:15 pm because the daily limit was full');
+    const audits = await database()
+      .select({ details: auditLog.details })
+      .from(auditLog)
+      .where(eq(auditLog.entityId, afternoon.id));
+    expect(audits.map((row) => row.details)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ from: slot.toISOString(), reason: 'daily_limit' }),
+      ]),
+    );
   });
 });
 
