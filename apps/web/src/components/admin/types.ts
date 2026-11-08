@@ -40,3 +40,28 @@ export type AdminDeal = AdminListItem & {
 };
 
 export const STALE_DEAL = 'This deal changed. Reload to see the latest version.';
+
+export type PublicationItem = {
+  id: string;
+  dealId: string;
+  title: string;
+  status: string;
+  mode: string;
+  origin: string;
+  lastError: string | null;
+  externalMessageId: string | null;
+  publishedAt: string | null;
+  scheduledFor: string | null;
+  createdAt: string;
+};
+
+export type PublishingStatus = {
+  enabled: boolean;
+  paused: boolean;
+  dailyLimit: number;
+  postedToday: number;
+  channel: string | null;
+  nextScheduled: string | null;
+  queued: number;
+  uncertain: number;
+};

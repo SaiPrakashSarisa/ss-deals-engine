@@ -107,15 +107,16 @@ describe('ReviewScreen', () => {
     expect(screen.getByRole('button', { name: 'Reject' })).toHaveProperty('disabled', false);
     expect(screen.getByRole('button', { name: 'Reopen' })).toHaveProperty('disabled', true);
     expect(screen.getByRole('button', { name: 'Unapprove' })).toHaveProperty('disabled', true);
-    expect(screen.getByRole('button', { name: /Publish now/ })).toHaveProperty('disabled', true);
-    expect(screen.getByRole('button', { name: /Schedule/ })).toHaveProperty('disabled', true);
-    expect(screen.getAllByText(/Publishing arrives in the next step/).length).toBe(2);
+    expect(screen.getByRole('button', { name: 'Publish now' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Schedule' })).toHaveProperty('disabled', true);
     pending.unmount();
 
     const approved = render(<ReviewScreen initialDeal={deal({ status: 'approved' })} />);
     expect(screen.getByRole('button', { name: 'Approve' })).toHaveProperty('disabled', true);
     expect(screen.getByRole('button', { name: 'Unapprove' })).toHaveProperty('disabled', false);
     expect(screen.getByRole('button', { name: 'Reject' })).toHaveProperty('disabled', false);
+    expect(screen.getByRole('button', { name: 'Publish now' })).toHaveProperty('disabled', false);
+    expect(screen.getByRole('button', { name: 'Schedule' })).toHaveProperty('disabled', false);
     approved.unmount();
 
     render(<ReviewScreen initialDeal={deal({ status: 'rejected' })} />);

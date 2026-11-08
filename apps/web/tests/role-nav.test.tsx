@@ -13,6 +13,9 @@ describe('role navigation', () => {
     expect(screen.queryByText('ada')).toBeNull();
     expect(screen.getByText('Admin')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Review queue' }).getAttribute('href')).toBe('/admin');
+    expect(screen.getByRole('link', { name: 'Publishing' }).getAttribute('href')).toBe(
+      '/admin/publishing',
+    );
     expect(screen.getByRole('link', { name: 'New deal' }).getAttribute('href')).toBe('/deals/new');
     expect(screen.queryByRole('link', { name: 'My deals' })).toBeNull();
     expect(screen.getByRole('link', { name: 'Account' }).getAttribute('href')).toBe('/account');
@@ -27,6 +30,7 @@ describe('role navigation', () => {
     expect(screen.getByText('Grace Hopper')).toBeTruthy();
     expect(screen.queryByText('Admin')).toBeNull();
     expect(screen.queryByRole('link', { name: 'Review queue' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Publishing' })).toBeNull();
     expect(screen.getByRole('link', { name: 'New deal' }).getAttribute('href')).toBe('/deals/new');
     expect(screen.getByRole('link', { name: 'My deals' }).getAttribute('href')).toBe('/deals/mine');
     expect(screen.queryByText(/owner/i)).toBeNull();
