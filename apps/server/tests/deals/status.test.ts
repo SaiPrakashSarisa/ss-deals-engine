@@ -41,6 +41,7 @@ describe('deal status transitions', () => {
       'pending_approval->draft',
       'pending_approval->approved',
       'pending_approval->rejected',
+      'approved->pending_approval',
       'approved->scheduled',
       'approved->published',
       'approved->rejected',

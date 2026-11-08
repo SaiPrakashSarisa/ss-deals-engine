@@ -1,4 +1,4 @@
-import { access, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { access, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -661,7 +661,10 @@ describe.skipIf(databaseUrl === '')('deal http', () => {
     });
     expect(image.statusCode).toBe(200);
     expect(image.headers['content-type']).toContain('image/png');
+    expect(String(image.headers['cache-control'])).toContain('private');
+    expect(String(image.headers['cache-control'])).toContain('no-cache');
     expect(image.rawPayload.subarray(0, 4)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const firstBytes = Buffer.from(image.rawPayload);
 
     const linus = await login('linus');
     expect(
@@ -703,6 +706,16 @@ describe.skipIf(databaseUrl === '')('deal http', () => {
     expect(replaced?.imagePath).not.toBe(stored?.imagePath);
     expect(await exists(path.join(uploadDir, stored?.imagePath ?? ''))).toBe(false);
     expect(await exists(path.join(uploadDir, replaced?.imagePath ?? ''))).toBe(true);
+    const replacedFile = await readFile(path.join(uploadDir, replaced?.imagePath ?? ''));
+    const replacedImage = await server().inject({
+      method: 'GET',
+      url: `/api/deals/${id}/image?v=${encodeURIComponent(second.json().deal.updatedAt as string)}`,
+      headers: { cookie },
+    });
+    expect(replacedImage.statusCode).toBe(200);
+    expect(String(replacedImage.headers['cache-control'])).toContain('no-cache');
+    expect(Buffer.compare(replacedImage.rawPayload, replacedFile)).toBe(0);
+    expect(Buffer.compare(replacedImage.rawPayload, firstBytes)).not.toBe(0);
 
     const removed = await server().inject({
       method: 'DELETE',

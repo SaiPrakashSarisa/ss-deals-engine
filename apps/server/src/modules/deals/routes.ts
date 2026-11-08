@@ -231,7 +231,7 @@ export function registerDealRoutes(app: FastifyInstance, deps: DealRouteDeps): v
       return reply
         .type(image.mime)
         .header('content-disposition', 'inline')
-        .header('cache-control', 'private, no-store')
+        .header('cache-control', 'private, no-cache')
         .send(image.bytes);
     });
   });

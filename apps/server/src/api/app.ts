@@ -4,6 +4,7 @@ import type { Database } from '../lib/db.js';
 import { registerAuthRoutes, type AuthRouteDeps } from '../modules/auth/routes.js';
 import { registerDealRoutes, type DealRouteDeps } from '../modules/deals/routes.js';
 import { registerHealthRoutes } from '../modules/health/routes.js';
+import { registerReviewRoutes } from '../modules/review/routes.js';
 
 const BODY_LIMIT_BYTES = 16 * 1024;
 
@@ -14,11 +15,16 @@ export type AuthAppOptions = Omit<AuthRouteDeps, 'db' | 'now'> & {
 
 export type DealsAppOptions = Omit<DealRouteDeps, 'db' | 'now' | 'cookieName' | 'cookieSecure'>;
 
+export type ReviewAppOptions = {
+  shortLinkHosts?: readonly string[];
+};
+
 export function buildApp(options: {
   checkDb: () => Promise<boolean>;
   logger?: Logger;
   auth?: AuthAppOptions;
   deals?: DealsAppOptions;
+  review?: ReviewAppOptions;
 }): FastifyInstance {
   const shared = {
     bodyLimit: BODY_LIMIT_BYTES,
@@ -61,6 +67,16 @@ export function buildApp(options: {
         cookieSecure: options.auth.cookieSecure,
       });
     }
+    registerReviewRoutes(app, {
+      db: options.auth.db,
+      now,
+      cookieName: options.auth.cookieName,
+      cookieSecure: options.auth.cookieSecure,
+      shortLinkHosts: options.review?.shortLinkHosts ??
+        options.deals?.shortLinkHosts ?? ['amzn.to', 'link.amazon'],
+      uploadDir: options.deals?.uploadDir ?? '',
+      maxUploadBytes: options.deals?.maxUploadBytes ?? 5 * 1024 * 1024,
+    });
   }
 
   return app;

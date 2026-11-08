@@ -161,4 +161,14 @@ describe('DealList', () => {
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Edit' })).toBeNull();
   });
+
+  it('versions the preview image with the deal time', async () => {
+    const user = userEvent.setup();
+    const updatedAt = '2026-11-07T10:00:00.000Z';
+    render(<DealList deals={[deal({ hasImage: true, updatedAt })]} shortLinkHosts={hosts} />);
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(within(screen.getByRole('dialog')).getByRole('img').getAttribute('src')).toBe(
+      `/api/deals/deal-1/image?v=${encodeURIComponent(updatedAt)}`,
+    );
+  });
 });

@@ -14,7 +14,7 @@ export type DealStatus = (typeof dealStatuses)[number];
 export const allowedTransitions: Record<DealStatus, readonly DealStatus[]> = {
   draft: ['pending_approval'],
   pending_approval: ['approved', 'rejected', 'draft'],
-  approved: ['scheduled', 'published', 'rejected'],
+  approved: ['scheduled', 'published', 'rejected', 'pending_approval'],
   scheduled: ['published', 'failed', 'approved'],
   failed: ['approved', 'rejected'],
   rejected: ['pending_approval'],

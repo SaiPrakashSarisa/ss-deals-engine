@@ -58,6 +58,21 @@ export type FieldFailure = {
   fields: Record<string, string>;
 };
 
+export type ReviewEditInput = {
+  title: string;
+  pricePaise: number;
+  oldPricePaise: number | null;
+  offer: string | null;
+  highlights: string[];
+  shortLink: string | null;
+  sourceNote: string | null;
+  previewEnabled: boolean;
+  oldPriceVerified: boolean;
+  updatedAt: Date;
+};
+
+export type ReviewEditParseResult = { ok: true; value: ReviewEditInput } | FieldFailure;
+
 export type DealParseResult = { ok: true; value: DealInput } | FieldFailure;
 
 export type CheckParseResult =
@@ -65,6 +80,9 @@ export type CheckParseResult =
   | FieldFailure;
 
 function blankToUndefined(value: unknown): unknown {
+  if (value === null) {
+    return undefined;
+  }
   if (typeof value !== 'string') {
     return value;
   }
@@ -123,6 +141,24 @@ const dealSchema = z.object({
   sourceNote: optionalText(120, SOURCE_NOTE_LENGTH_ERROR),
   clerkNotes: optionalText(300, NOTES_LENGTH_ERROR),
 });
+
+const reviewEditSchema = dealSchema
+  .pick({
+    title: true,
+    price: true,
+    oldPrice: true,
+    offer: true,
+    highlights: true,
+    shortLink: true,
+    sourceNote: true,
+  })
+  .extend({
+    previewEnabled: z.boolean({ error: 'Choose whether the link preview is on.' }),
+    oldPriceVerified: z.boolean({ error: 'Choose whether the old price is verified.' }),
+    updatedAt: z
+      .string({ error: 'Send the latest version of this deal.' })
+      .min(1, 'Send the latest version of this deal.'),
+  });
 
 const checkSchema = z.object({
   url: z
@@ -235,6 +271,79 @@ export function parseDealBody(
       shortLink,
       sourceNote: parsed.data.sourceNote ?? null,
       clerkNotes: parsed.data.clerkNotes ?? null,
+    },
+  };
+}
+
+export function parseReviewEdit(
+  body: unknown,
+  options: { shortLinkHosts: readonly string[] },
+): ReviewEditParseResult {
+  const parsed = reviewEditSchema.safeParse(body);
+  if (!parsed.success) {
+    return { ok: false, error: FIELD_SUMMARY, fields: fieldMap(parsed.error) };
+  }
+
+  const fields: Record<string, string> = {};
+  const rupees = parsePriceInput(parsed.data.price);
+  const pricePaise = rupees === undefined ? undefined : toPaise(rupees);
+  if (rupees === undefined) {
+    fields.price = PRICE_ERROR;
+  } else if (pricePaise === undefined) {
+    fields.price = PRICE_TOO_BIG_ERROR;
+  }
+
+  let oldPricePaise: number | null = null;
+  if (parsed.data.oldPrice !== undefined) {
+    const oldRupees = parsePriceInput(parsed.data.oldPrice);
+    if (oldRupees === undefined) {
+      fields.oldPrice = OLD_PRICE_ERROR;
+    } else if (rupees !== undefined && oldRupees <= rupees) {
+      fields.oldPrice = OLD_PRICE_ORDER_ERROR;
+    } else {
+      const converted = toPaise(oldRupees);
+      if (converted === undefined) {
+        fields.oldPrice = PRICE_TOO_BIG_ERROR;
+      } else {
+        oldPricePaise = converted;
+      }
+    }
+  }
+
+  let shortLink: string | null = null;
+  if (parsed.data.shortLink !== undefined) {
+    const short = validateShortLink(parsed.data.shortLink, options.shortLinkHosts);
+    if (!short.ok) {
+      fields.shortLink = SHORT_LINK_ERROR;
+    } else {
+      shortLink = short.url;
+    }
+  }
+
+  const updatedAt = new Date(parsed.data.updatedAt);
+  if (Number.isNaN(updatedAt.getTime())) {
+    fields.updatedAt = 'Send the latest version of this deal.';
+  }
+
+  if (pricePaise === undefined || Object.keys(fields).length > 0) {
+    return { ok: false, error: FIELD_SUMMARY, fields };
+  }
+
+  const oldPriceVerified = oldPricePaise !== null && parsed.data.oldPriceVerified;
+
+  return {
+    ok: true,
+    value: {
+      title: parsed.data.title,
+      pricePaise,
+      oldPricePaise,
+      offer: parsed.data.offer ?? null,
+      highlights: parsed.data.highlights,
+      shortLink,
+      sourceNote: parsed.data.sourceNote ?? null,
+      previewEnabled: parsed.data.previewEnabled,
+      oldPriceVerified,
+      updatedAt,
     },
   };
 }

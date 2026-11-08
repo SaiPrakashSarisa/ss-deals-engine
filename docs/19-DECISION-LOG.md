@@ -147,3 +147,39 @@ My deals opens a modal with `formatPost` from `@ss-deals/core`, the stored field
 ### The edit page is the same form
 
 `/deals/[id]/edit` renders the deal form in edit mode. The product link is read-only. Save changes stays on the page. A deal the person cannot edit, including someone else's deal, shows "You can't edit this deal". The screen does not use role words. Clickable controls use a pointer cursor, and disabled controls use a not-allowed cursor.
+
+## 2026-11-05 — Admin review API (T6a)
+
+### Admin-only review endpoints
+
+The admin review API lives in `apps/server/src/modules/review`. All endpoints require a signed-in session with role `owner`; non-admins receive `403` with `You do not have access to this.` and unauthenticated requests receive `401`.
+
+### Status counts and queue ordering
+
+`GET /api/admin/deals` returns a `counts` map for all statuses alongside the paginated `items` for the requested filter (defaulting to `pending_approval`). The queue is ordered FIFO for `pending_approval` (oldest submitted deals first) so reviewers handle items in arrival order. Other tabs (draft, approved, rejected, published, failed, scheduled) are ordered newest first. Page size is capped at 50.
+
+### Shared post preview and duplicate inspection on detail
+
+`GET /api/admin/deals/:id` returns all deal fields in rupees, product ASIN, tagged and short links, image info, and creator visible name (falling back to username). It embeds:
+
+- `preview`: generated via `buildDealPreview`, which calls `formatPost` with the deal form's text link. The percent-off line is included only when the old price is verified.
+- `duplicate`: evaluates whether another active deal exists for the same product, and evaluates repost legality via `evaluateRepost` against the latest published post price.
+  No password hashes, sessions, or private user fields are returned.
+
+## 2026-11-07 — Admin review decisions
+
+### Edits keep the same limits and a fresh timestamp
+
+An admin can change a deal only while it is waiting for review or approved. The request must send the `updatedAt` from the detail. The row is locked, the timestamp is compared in the application, and a mismatch is `409` with "This deal changed. Reload to see the latest version." Clearing the old price forces `old_price_verified` false. A new price writes `price_snapshots` with origin `owner_entered`.
+
+### Decisions go through the status map
+
+Approve, send back, reject, reopen, and unapprove call `assertTransition`. Unapprove is the added move from `approved` back to `pending_approval`. Approve re-checks the active-deal rule and `evaluateRepost`, then stores the shared caption as the only current content draft. A later edit of an approved deal writes the next version. A withdrawn deal answers `409` with "This deal was withdrawn or changed." Publish and schedule are not in this step.
+
+## 2026-11-08 — Sent back is a draft with a note
+
+`GET /api/admin/deals?status=sent_back` lists deals whose status is `draft` and whose `review_note` is set. `counts.sent_back` uses that same rule. A draft that was never submitted, and a draft the creator withdrew before review, stay out of that count and out of the admin list. Sending the deal for review again moves it to `pending_approval`, so it leaves the count even if the note is still stored.
+
+## 2026-11-08 — Image addresses and review exits
+
+Deal image URLs include the deal's `updatedAt` so a browser cannot keep a replaced file under the same address. `GET /api/deals/:id/image` sends `Cache-Control: private, no-cache`. After a successful send back or reject, the review page goes to `/admin` with a one-time notice (`Sent back to <name>.` or `Rejected.`) that the queue shows and then removes from the address. Approve, reopen, and unapprove stay on the deal and keep the `updatedAt` from the response.
