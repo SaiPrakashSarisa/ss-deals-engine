@@ -120,6 +120,8 @@ describe.skipIf(databaseUrl === '')('publish now', () => {
       token,
       timeoutMs: 15000,
       dailyLimit: 8,
+      minGapMinutes: 30,
+      maxLateMinutes: 120,
       linkStyle: 'text' as const,
       postFooter: '',
       uploadDir,

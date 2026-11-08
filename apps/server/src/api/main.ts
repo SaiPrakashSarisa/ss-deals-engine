@@ -34,6 +34,8 @@ export async function startApi(): Promise<void> {
       token: config.TELEGRAM_BOT_TOKEN,
       timeoutMs: config.TELEGRAM_TIMEOUT_MS,
       dailyLimit: config.DAILY_POST_LIMIT,
+      minGapMinutes: config.MIN_POST_GAP_MINUTES,
+      maxLateMinutes: config.MAX_LATE_MINUTES,
       linkStyle: config.LINK_STYLE,
       postFooter: config.POST_FOOTER,
       uploadDir: config.UPLOAD_DIR,

@@ -23,6 +23,9 @@ const configSchema = z
     DAILY_POST_LIMIT: z.number().int().min(1).max(100),
     LINK_STYLE: z.enum(['text', 'button', 'both']),
     POST_FOOTER: z.string().max(120),
+    MIN_POST_GAP_MINUTES: z.number().int().min(0).max(1440),
+    MAX_LATE_MINUTES: z.number().int().min(1).max(10_080),
+    SCHEDULER_INTERVAL_SECONDS: z.number().int().min(5).max(3600),
   })
   .strict();
 
@@ -317,6 +320,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     DAILY_POST_LIMIT: parsePositiveInt(env.DAILY_POST_LIMIT, 'DAILY_POST_LIMIT', 8, 1, 100),
     LINK_STYLE: parseLinkStyle(env.LINK_STYLE),
     POST_FOOTER: parseFooter(env.POST_FOOTER),
+    MIN_POST_GAP_MINUTES: parsePositiveInt(
+      env.MIN_POST_GAP_MINUTES,
+      'MIN_POST_GAP_MINUTES',
+      30,
+      0,
+      1440,
+    ),
+    MAX_LATE_MINUTES: parsePositiveInt(env.MAX_LATE_MINUTES, 'MAX_LATE_MINUTES', 120, 1, 10_080),
+    SCHEDULER_INTERVAL_SECONDS: parsePositiveInt(
+      env.SCHEDULER_INTERVAL_SECONDS,
+      'SCHEDULER_INTERVAL_SECONDS',
+      30,
+      5,
+      3600,
+    ),
   });
 
   if (!parsed.success) {

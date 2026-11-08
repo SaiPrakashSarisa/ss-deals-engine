@@ -26,6 +26,9 @@ describe('loadConfig', () => {
       DAILY_POST_LIMIT: 8,
       LINK_STYLE: 'text',
       POST_FOOTER: '',
+      MIN_POST_GAP_MINUTES: 30,
+      MAX_LATE_MINUTES: 120,
+      SCHEDULER_INTERVAL_SECONDS: 30,
     });
   });
 
@@ -65,6 +68,9 @@ describe('loadConfig', () => {
       DAILY_POST_LIMIT: 8,
       LINK_STYLE: 'text',
       POST_FOOTER: '',
+      MIN_POST_GAP_MINUTES: 30,
+      MAX_LATE_MINUTES: 120,
+      SCHEDULER_INTERVAL_SECONDS: 30,
     });
   });
 

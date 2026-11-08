@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { and, desc, eq, gte, inArray, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, ne, sql } from 'drizzle-orm';
 import {
   AMAZON_BUTTON_LABEL,
   formatPost,
@@ -29,14 +29,22 @@ import {
   DAILY_LIMIT,
   IMAGE_MISSING,
   IN_FLIGHT,
+  MISSED_WINDOW,
   NO_CAPTION,
   NOT_APPROVED,
+  NOT_QUEUED,
+  NOT_SCHEDULED,
   NOT_UNCERTAIN,
   PUBLISHING_OFF,
   PUBLISHING_PAUSED,
   RECORD_FAILED,
+  SCHEDULE_FUTURE,
+  SCHEDULE_WINDOW,
+  SETTINGS_INVALID,
+  STOPPED_WHILE_POSTING,
   UNKNOWN_PRICE,
 } from './messages.js';
+import { retryDelayMs } from './retry.js';
 import {
   redactSecret,
   type TelegramButton,
@@ -58,13 +66,15 @@ export type PublishingSettings = {
   channel: string | null;
   token: string | null;
   dailyLimit: number;
+  minGapMinutes: number;
+  maxLateMinutes: number;
   linkStyle: LinkStyle;
   postFooter: string;
   uploadDir: string;
   shortLinkHosts: readonly string[];
 };
 
-export type PublishActor = { id: string; now: Date };
+export type PublishActor = { id: string | null; now: Date };
 
 export type PublishRequest = {
   updatedAt: Date;
@@ -142,17 +152,51 @@ async function postedToday(db: PublishDb, now: Date): Promise<number> {
 }
 
 async function isPaused(db: PublishDb): Promise<boolean> {
-  const [row] = await db
-    .select({ value: settings.value })
+  const limits = await readLimits(db, { dailyLimit: 0, minGapMinutes: 0, maxLateMinutes: 0 });
+  return limits.paused;
+}
+
+const SETTING_PAUSED = 'publishing_paused';
+const SETTING_LIMIT = 'daily_limit';
+const SETTING_GAP = 'min_gap_minutes';
+
+export type RuntimeLimits = {
+  paused: boolean;
+  dailyLimit: number;
+  minGapMinutes: number;
+};
+
+export async function readLimits(
+  db: PublishDb,
+  defaults: Pick<PublishingSettings, 'dailyLimit' | 'minGapMinutes' | 'maxLateMinutes'>,
+): Promise<RuntimeLimits & { maxLateMinutes: number }> {
+  const rows = await db
+    .select({ key: settings.key, value: settings.value })
     .from(settings)
-    .where(eq(settings.key, 'publishing_paused'))
-    .limit(1);
-  return row?.value === true;
+    .where(inArray(settings.key, [SETTING_PAUSED, SETTING_LIMIT, SETTING_GAP]));
+  const stored = new Map(rows.map((row) => [row.key, row.value]));
+  const daily = stored.get(SETTING_LIMIT);
+  const gap = stored.get(SETTING_GAP);
+  return {
+    paused: stored.get(SETTING_PAUSED) === true,
+    dailyLimit:
+      typeof daily === 'number' && Number.isInteger(daily) && daily >= 1 && daily <= 100
+        ? daily
+        : defaults.dailyLimit,
+    minGapMinutes:
+      typeof gap === 'number' && Number.isInteger(gap) && gap >= 0 && gap <= 1440
+        ? gap
+        : defaults.minGapMinutes,
+    maxLateMinutes: defaults.maxLateMinutes,
+  };
 }
 
 export async function publishingStatus(
   db: PublishDb,
-  config: Pick<PublishingSettings, 'enabled' | 'channel' | 'dailyLimit'>,
+  config: Pick<
+    PublishingSettings,
+    'enabled' | 'channel' | 'dailyLimit' | 'minGapMinutes' | 'maxLateMinutes'
+  >,
   now: Date,
 ): Promise<{
   enabled: boolean;
@@ -160,13 +204,28 @@ export async function publishingStatus(
   dailyLimit: number;
   postedToday: number;
   channel: string | null;
+  nextScheduled: string | null;
+  queued: number;
+  uncertain: number;
 }> {
+  const limits = await readLimits(db, config);
+  const [counts] = await db
+    .select({
+      queued: sql<number>`count(*) filter (where ${publications.status} = 'queued')::int`,
+      uncertain: sql<number>`count(*) filter (where ${publications.status} = 'uncertain')::int`,
+      nextScheduled: sql<Date | null>`min(${publications.scheduledFor}) filter (where ${publications.status} = 'queued')`,
+    })
+    .from(publications);
+  const next = counts?.nextScheduled ?? null;
   return {
     enabled: config.enabled,
-    paused: await isPaused(db),
-    dailyLimit: config.dailyLimit,
+    paused: limits.paused,
+    dailyLimit: limits.dailyLimit,
     postedToday: await postedToday(db, now),
     channel: config.channel,
+    nextScheduled: next instanceof Date ? next.toISOString() : null,
+    queued: Number(counts?.queued ?? 0),
+    uncertain: Number(counts?.uncertain ?? 0),
   };
 }
 
@@ -237,7 +296,6 @@ export async function publishDeal(
   if (deps.config.channel === null) {
     throw new DealHttpError(409, CHANNEL_MISSING);
   }
-  const logger = deps.logger ?? silentLogger;
   const prepared = await transaction(db, async (tx) =>
     prepare(tx, actor, dealId, request, deps.config),
   ).catch((error: unknown) => {
@@ -247,6 +305,26 @@ export async function publishDeal(
     throw error;
   });
 
+  return sendPrepared(db, actor, prepared, deps, false);
+}
+
+async function sendPrepared(
+  db: PublishDb,
+  actor: PublishActor,
+  prepared: Prepared,
+  deps: {
+    client: TelegramClient;
+    config: PublishingSettings;
+    logger?: PublishLogger;
+    beforeRecord?: (result: TelegramResult) => Promise<void>;
+  },
+  retryScheduled: boolean,
+): Promise<PublishOutcome> {
+  const logger = deps.logger ?? silentLogger;
+  const channel = deps.config.channel;
+  if (channel === null) {
+    throw new DealHttpError(409, CHANNEL_MISSING);
+  }
   let photo: { filename: string; mime: string; bytes: Uint8Array } | undefined;
   if (prepared.mode === 'photo') {
     const full =
@@ -256,6 +334,9 @@ export async function publishDeal(
     const bytes = full === undefined ? undefined : await readFile(full).catch(() => undefined);
     if (bytes === undefined || prepared.imageMime === null || prepared.imagePath === null) {
       await mark(db, prepared.publicationId, 'failed', IMAGE_MISSING, actor);
+      if (retryScheduled) {
+        await returnScheduledDeal(db, prepared.dealId);
+      }
       throw new DealHttpError(409, IMAGE_MISSING);
     }
     photo = { filename: prepared.imagePath, mime: prepared.imageMime, bytes };
@@ -264,13 +345,13 @@ export async function publishDeal(
   const result =
     photo === undefined
       ? await deps.client.sendText({
-          chatId: deps.config.channel,
+          chatId: channel,
           text: prepared.caption,
           previewEnabled: prepared.previewEnabled,
           button: prepared.button,
         })
       : await deps.client.sendPhoto({
-          chatId: deps.config.channel,
+          chatId: channel,
           caption: prepared.caption,
           filename: photo.filename,
           mime: photo.mime,
@@ -283,7 +364,7 @@ export async function publishDeal(
       await deps.beforeRecord(result);
     }
     return await transaction(db, async (tx) =>
-      record(tx, actor, prepared, result, deps.config.token),
+      record(tx, actor, prepared, result, deps.config.token, retryScheduled),
     );
   } catch (error) {
     if (result.kind === 'ok') {
@@ -373,7 +454,10 @@ async function prepare(
   } else if (!repost.allowed) {
     throw new DealHttpError(409, repostRefusalMessage('price_not_lower'));
   }
-  if (!request.override && (await postedToday(tx, actor.now)) >= config.dailyLimit) {
+  if (
+    !request.override &&
+    (await postedToday(tx, actor.now)) >= (await readLimits(tx, config)).dailyLimit
+  ) {
     throw new DealHttpError(409, DAILY_LIMIT);
   }
 
@@ -558,9 +642,14 @@ async function record(
   prepared: Prepared,
   result: TelegramResult,
   token: string | null,
+  retryScheduled: boolean,
 ): Promise<PublishOutcome> {
   const [current] = await tx
-    .select({ id: publications.id, dealId: publications.dealId })
+    .select({
+      id: publications.id,
+      dealId: publications.dealId,
+      attempts: publications.attempts,
+    })
     .from(publications)
     .where(eq(publications.id, prepared.publicationId))
     .limit(1)
@@ -602,13 +691,28 @@ async function record(
     const reason =
       result.kind === 'rate_limited'
         ? `Telegram rate limit. Retry after ${result.retryAfterSeconds} seconds.`
-        : result.kind === 'not_sent'
-          ? result.reason
-          : result.reason;
-    await tx
-      .update(publications)
-      .set({ status: 'failed', lastError: redactSecret(reason, token) })
-      .where(eq(publications.id, current.id));
+        : result.reason;
+    const safeReason = redactSecret(reason, token);
+    const delay = retryScheduled ? retryDelayMs(current.attempts, result) : undefined;
+    if (delay !== undefined) {
+      await tx
+        .update(publications)
+        .set({
+          status: 'queued',
+          scheduledFor: new Date(actor.now.getTime() + delay),
+          lastError: safeReason,
+        })
+        .where(eq(publications.id, current.id));
+    } else {
+      await tx
+        .update(publications)
+        .set({ status: 'failed', lastError: safeReason })
+        .where(eq(publications.id, current.id));
+      if (deal.status === 'scheduled') {
+        assertTransition(deal.status, 'approved');
+        await tx.update(deals).set({ status: 'approved' }).where(eq(deals.id, deal.id));
+      }
+    }
   }
 
   await tx.insert(auditLog).values({
@@ -703,6 +807,10 @@ export async function resolvePublication(
         .update(publications)
         .set({ status: 'failed', lastError: 'Marked as not posted.' })
         .where(eq(publications.id, row.id));
+      if (deal.status === 'scheduled') {
+        assertTransition(deal.status, 'approved');
+        await tx.update(deals).set({ status: 'approved' }).where(eq(deals.id, deal.id));
+      }
     }
     await tx.insert(auditLog).values({
       actorUserId: actor.id,
@@ -713,4 +821,464 @@ export async function resolvePublication(
     });
     return outcome(tx, row.id);
   });
+}
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const STUCK_MS = 2 * 60 * 1000;
+
+export type ScheduleRequest = { updatedAt: Date; scheduledFor: Date };
+
+export type TickResult =
+  | { kind: 'paused' | 'idle' | 'gap' | 'limited' | 'busy' }
+  | { kind: 'missed'; count: number }
+  | { kind: 'sent'; publicationId: string; status: string };
+
+type DeliveryDeps = {
+  client: TelegramClient;
+  config: PublishingSettings;
+  logger?: PublishLogger;
+  beforeRecord?: (result: TelegramResult) => Promise<void>;
+};
+
+async function returnScheduledDeal(db: PublishDb, dealId: string): Promise<void> {
+  const [deal] = await db
+    .select({ status: deals.status })
+    .from(deals)
+    .where(eq(deals.id, dealId))
+    .limit(1);
+  if (deal?.status !== 'scheduled') {
+    return;
+  }
+  assertTransition(deal.status, 'approved');
+  await db.update(deals).set({ status: 'approved' }).where(eq(deals.id, dealId));
+}
+
+async function writeSetting(tx: PublishDb, key: string, value: boolean | number): Promise<void> {
+  await tx
+    .insert(settings)
+    .values({ key, value })
+    .onConflictDoUpdate({ target: settings.key, set: { value } });
+}
+
+export async function scheduleDeal(
+  db: PublishDb,
+  actor: PublishActor,
+  dealId: string,
+  request: ScheduleRequest,
+  config: PublishingSettings,
+): Promise<PublishOutcome> {
+  if (!config.enabled) {
+    throw new DealHttpError(409, PUBLISHING_OFF);
+  }
+  if (config.channel === null) {
+    throw new DealHttpError(409, CHANNEL_MISSING);
+  }
+  if (request.scheduledFor.getTime() <= actor.now.getTime()) {
+    throw new DealHttpError(400, SCHEDULE_FUTURE);
+  }
+  if (request.scheduledFor.getTime() > actor.now.getTime() + WEEK_MS) {
+    throw new DealHttpError(400, SCHEDULE_WINDOW);
+  }
+  const channelName = config.channel;
+  return transaction(db, async (tx) => {
+    const [deal] = await tx
+      .select({
+        id: deals.id,
+        status: deals.status,
+        updatedAt: deals.updatedAt,
+        productId: deals.productId,
+        pricePaise: deals.pricePaise,
+        imagePath: deals.imagePath,
+        imageMime: deals.imageMime,
+        shortUrl: affiliateLinks.shortUrl,
+        affiliateUrl: affiliateLinks.affiliateUrl,
+      })
+      .from(deals)
+      .innerJoin(affiliateLinks, eq(affiliateLinks.id, deals.linkId))
+      .where(eq(deals.id, dealId))
+      .limit(1)
+      .for('update');
+    if (deal === undefined) {
+      throw new DealHttpError(404, 'That deal was not found.');
+    }
+    if (deal.updatedAt.getTime() !== request.updatedAt.getTime()) {
+      throw new DealHttpError(409, STALE_DEAL);
+    }
+    if (deal.status !== 'approved') {
+      throw new DealHttpError(409, NOT_APPROVED);
+    }
+    const [draft] = await tx
+      .select({ id: contentDrafts.id, bodyHtml: contentDrafts.bodyHtml })
+      .from(contentDrafts)
+      .where(and(eq(contentDrafts.dealId, deal.id), eq(contentDrafts.isCurrent, true)))
+      .limit(1);
+    if (draft === undefined) {
+      throw new DealHttpError(409, NO_CAPTION);
+    }
+    const hasImage = deal.imagePath !== null && deal.imageMime !== null;
+    if (hasImage && draft.bodyHtml.length >= PHOTO_CAPTION_LIMIT) {
+      throw new DealHttpError(409, CAPTION_TOO_LONG(draft.bodyHtml.length));
+    }
+    const channel = await upsertChannel(tx, channelName);
+    const short = deal.shortUrl?.trim() ?? '';
+    const linkKind: 'short' | 'tagged' =
+      short.length > 0 && validateShortLink(short, config.shortLinkHosts).ok ? 'short' : 'tagged';
+    const [own] = await tx
+      .select({ id: publications.id, status: publications.status })
+      .from(publications)
+      .where(and(eq(publications.channelId, channel.id), eq(publications.dealId, deal.id)))
+      .limit(1)
+      .for('update');
+    if (own !== undefined && own.status !== 'failed') {
+      throw new DealHttpError(409, IN_FLIGHT);
+    }
+    const values = {
+      status: 'queued' as const,
+      mode: hasImage ? ('photo' as const) : ('text' as const),
+      linkKind,
+      origin: 'app' as const,
+      postedPricePaise: deal.pricePaise,
+      attempts: 0,
+      lastError: null,
+      externalMessageId: null,
+      publishedAt: null,
+      contentDraftId: draft.id,
+      scheduledFor: request.scheduledFor,
+    };
+    const row =
+      own === undefined
+        ? (
+            await tx
+              .insert(publications)
+              .values({
+                ...values,
+                dealId: deal.id,
+                productId: deal.productId,
+                channelId: channel.id,
+              })
+              .returning({ id: publications.id })
+          )[0]
+        : (
+            await tx
+              .update(publications)
+              .set(values)
+              .where(eq(publications.id, own.id))
+              .returning({ id: publications.id })
+          )[0];
+    if (row === undefined) {
+      throw new DealHttpError(409, IN_FLIGHT);
+    }
+    assertTransition(deal.status, 'scheduled');
+    await tx.update(deals).set({ status: 'scheduled' }).where(eq(deals.id, deal.id));
+    await tx.insert(auditLog).values({
+      actorUserId: actor.id,
+      action: 'deal.schedule',
+      entityType: 'deal',
+      entityId: deal.id,
+      details: { publicationId: row.id, scheduledFor: request.scheduledFor.toISOString() },
+    });
+    return outcome(tx, row.id);
+  }).catch((error: unknown) => {
+    if (uniqueViolation(error)) {
+      throw new DealHttpError(409, IN_FLIGHT);
+    }
+    throw error;
+  });
+}
+
+export async function unscheduleDeal(
+  db: PublishDb,
+  actor: PublishActor,
+  dealId: string,
+  updatedAt: Date,
+  channelName: string | null,
+): Promise<PublishOutcome> {
+  if (channelName === null) {
+    throw new DealHttpError(409, CHANNEL_MISSING);
+  }
+  return transaction(db, async (tx) => {
+    const [deal] = await tx
+      .select({ id: deals.id, status: deals.status, updatedAt: deals.updatedAt })
+      .from(deals)
+      .where(eq(deals.id, dealId))
+      .limit(1)
+      .for('update');
+    if (deal === undefined) {
+      throw new DealHttpError(404, 'That deal was not found.');
+    }
+    if (deal.updatedAt.getTime() !== updatedAt.getTime()) {
+      throw new DealHttpError(409, STALE_DEAL);
+    }
+    if (deal.status !== 'scheduled') {
+      throw new DealHttpError(409, NOT_SCHEDULED);
+    }
+    const [row] = await tx
+      .select({ id: publications.id, status: publications.status })
+      .from(publications)
+      .innerJoin(channels, eq(channels.id, publications.channelId))
+      .where(and(eq(publications.dealId, deal.id), eq(channels.username, channelName)))
+      .limit(1)
+      .for('update');
+    if (row === undefined || row.status !== 'queued') {
+      throw new DealHttpError(409, NOT_QUEUED);
+    }
+    await tx.delete(publications).where(eq(publications.id, row.id));
+    assertTransition(deal.status, 'approved');
+    await tx.update(deals).set({ status: 'approved' }).where(eq(deals.id, deal.id));
+    await tx.insert(auditLog).values({
+      actorUserId: actor.id,
+      action: 'deal.unschedule',
+      entityType: 'deal',
+      entityId: deal.id,
+      details: { publicationId: row.id },
+    });
+    const [saved] = await tx
+      .select({ status: deals.status, updatedAt: deals.updatedAt })
+      .from(deals)
+      .where(eq(deals.id, deal.id))
+      .limit(1);
+    if (saved === undefined) {
+      throw new Error('deal disappeared after unschedule');
+    }
+    return {
+      publication: {
+        id: row.id,
+        dealId: deal.id,
+        status: 'deleted',
+        lastError: null,
+        externalMessageId: null,
+        publishedAt: null,
+      },
+      deal: { id: deal.id, status: saved.status, updatedAt: saved.updatedAt.toISOString() },
+    };
+  });
+}
+
+export async function setPublishingPaused(
+  db: PublishDb,
+  actor: PublishActor,
+  paused: boolean,
+): Promise<void> {
+  await transaction(db, async (tx) => {
+    await writeSetting(tx, SETTING_PAUSED, paused);
+    await tx.insert(auditLog).values({
+      actorUserId: actor.id,
+      action: paused ? 'publishing.pause' : 'publishing.resume',
+      entityType: 'settings',
+      entityId: null,
+      details: { paused },
+    });
+  });
+}
+
+export async function updatePublishingSettings(
+  db: PublishDb,
+  actor: PublishActor,
+  input: { dailyLimit: number; minGapMinutes: number },
+): Promise<void> {
+  if (
+    !Number.isInteger(input.dailyLimit) ||
+    input.dailyLimit < 1 ||
+    input.dailyLimit > 100 ||
+    !Number.isInteger(input.minGapMinutes) ||
+    input.minGapMinutes < 0 ||
+    input.minGapMinutes > 1440
+  ) {
+    throw new DealHttpError(400, SETTINGS_INVALID);
+  }
+  await transaction(db, async (tx) => {
+    await writeSetting(tx, SETTING_LIMIT, input.dailyLimit);
+    await writeSetting(tx, SETTING_GAP, input.minGapMinutes);
+    await tx.insert(auditLog).values({
+      actorUserId: actor.id,
+      action: 'publishing.settings',
+      entityType: 'settings',
+      entityId: null,
+      details: { dailyLimit: input.dailyLimit, minGapMinutes: input.minGapMinutes },
+    });
+  });
+}
+
+export async function recoverInterruptedPublishing(db: PublishDb, now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - STUCK_MS);
+  const rows = await db
+    .update(publications)
+    .set({ status: 'uncertain', lastError: STOPPED_WHILE_POSTING })
+    .where(and(eq(publications.status, 'publishing'), lt(publications.updatedAt, cutoff)))
+    .returning({ id: publications.id });
+  return rows.length;
+}
+
+async function releaseMissed(
+  db: PublishDb,
+  actor: PublishActor,
+  maxLateMinutes: number,
+): Promise<number> {
+  const cutoff = new Date(actor.now.getTime() - maxLateMinutes * 60_000);
+  return transaction(db, async (tx) => {
+    const rows = await tx
+      .select({ id: publications.id, dealId: publications.dealId })
+      .from(publications)
+      .where(and(eq(publications.status, 'queued'), lt(publications.scheduledFor, cutoff)))
+      .for('update');
+    for (const row of rows) {
+      const [deal] = await tx
+        .select({ status: deals.status })
+        .from(deals)
+        .where(eq(deals.id, row.dealId))
+        .limit(1)
+        .for('update');
+      if (deal?.status === 'scheduled') {
+        assertTransition(deal.status, 'approved');
+        await tx
+          .update(deals)
+          .set({ status: 'approved', reviewNote: MISSED_WINDOW })
+          .where(eq(deals.id, row.dealId));
+      }
+      await tx.delete(publications).where(eq(publications.id, row.id));
+      await tx.insert(auditLog).values({
+        actorUserId: actor.id,
+        action: 'deal.unschedule',
+        entityType: 'deal',
+        entityId: row.dealId,
+        details: { publicationId: row.id, reason: 'missed' },
+      });
+    }
+    return rows.length;
+  });
+}
+
+async function claimDue(
+  tx: PublishDb,
+  actor: PublishActor,
+  config: PublishingSettings,
+): Promise<Prepared | undefined> {
+  if (config.channel === null) {
+    return undefined;
+  }
+  const [row] = await tx
+    .select({
+      id: publications.id,
+      dealId: publications.dealId,
+      dealStatus: deals.status,
+      title: deals.title,
+      pricePaise: deals.pricePaise,
+      oldPricePaise: deals.oldPricePaise,
+      oldPriceVerified: deals.oldPriceVerified,
+      highlights: deals.highlights,
+      offerText: deals.offerText,
+      previewEnabled: deals.previewEnabled,
+      imagePath: deals.imagePath,
+      imageMime: deals.imageMime,
+      shortUrl: affiliateLinks.shortUrl,
+      affiliateUrl: affiliateLinks.affiliateUrl,
+      bodyHtml: contentDrafts.bodyHtml,
+    })
+    .from(publications)
+    .innerJoin(deals, eq(deals.id, publications.dealId))
+    .innerJoin(affiliateLinks, eq(affiliateLinks.id, deals.linkId))
+    .innerJoin(contentDrafts, eq(contentDrafts.id, publications.contentDraftId))
+    .innerJoin(channels, eq(channels.id, publications.channelId))
+    .where(
+      and(
+        eq(publications.status, 'queued'),
+        lte(publications.scheduledFor, actor.now),
+        eq(channels.username, config.channel),
+      ),
+    )
+    .orderBy(asc(publications.scheduledFor), asc(publications.id))
+    .limit(1)
+    .for('update', { skipLocked: true });
+  if (row === undefined) {
+    return undefined;
+  }
+  if (row.dealStatus !== 'scheduled') {
+    await tx
+      .update(publications)
+      .set({ status: 'failed', lastError: NOT_SCHEDULED })
+      .where(eq(publications.id, row.id));
+    return undefined;
+  }
+  const hasImage = row.imagePath !== null && row.imageMime !== null;
+  if (hasImage && row.bodyHtml.length >= PHOTO_CAPTION_LIMIT) {
+    await tx
+      .update(publications)
+      .set({ status: 'failed', lastError: CAPTION_TOO_LONG(row.bodyHtml.length) })
+      .where(eq(publications.id, row.id));
+    assertTransition(row.dealStatus, 'approved');
+    await tx.update(deals).set({ status: 'approved' }).where(eq(deals.id, row.dealId));
+    return undefined;
+  }
+  await tx
+    .update(publications)
+    .set({
+      status: 'publishing',
+      attempts: sql`${publications.attempts} + 1`,
+      postedPricePaise: row.pricePaise,
+    })
+    .where(eq(publications.id, row.id));
+  const short = row.shortUrl?.trim() ?? '';
+  const linkUrl =
+    short.length > 0 && validateShortLink(short, config.shortLinkHosts).ok
+      ? short
+      : row.affiliateUrl;
+  return {
+    publicationId: row.id,
+    dealId: row.dealId,
+    caption: row.bodyHtml,
+    previewEnabled: row.previewEnabled,
+    mode: hasImage ? 'photo' : 'text',
+    imagePath: row.imagePath,
+    imageMime: row.imageMime,
+    button: buttonFor(row, linkUrl, config),
+  };
+}
+
+export async function publishNextDue(
+  db: PublishDb,
+  actor: PublishActor,
+  deps: DeliveryDeps,
+): Promise<TickResult> {
+  await recoverInterruptedPublishing(db, actor.now);
+  if (!deps.config.enabled) {
+    return { kind: 'paused' };
+  }
+  const limits = await readLimits(db, deps.config);
+  if (limits.paused) {
+    return { kind: 'paused' };
+  }
+  const missed = await releaseMissed(db, actor, limits.maxLateMinutes);
+  if (missed > 0) {
+    return { kind: 'missed', count: missed };
+  }
+  const [inflight] = await db
+    .select({ id: publications.id })
+    .from(publications)
+    .where(eq(publications.status, 'publishing'))
+    .limit(1);
+  if (inflight !== undefined) {
+    return { kind: 'busy' };
+  }
+  if ((await postedToday(db, actor.now)) >= limits.dailyLimit) {
+    return { kind: 'limited' };
+  }
+  const [last] = await db
+    .select({ publishedAt: publications.publishedAt })
+    .from(publications)
+    .where(and(eq(publications.status, 'published'), isNotNull(publications.publishedAt)))
+    .orderBy(desc(publications.publishedAt))
+    .limit(1);
+  if (
+    last?.publishedAt !== null &&
+    last?.publishedAt !== undefined &&
+    actor.now.getTime() - last.publishedAt.getTime() < limits.minGapMinutes * 60_000
+  ) {
+    return { kind: 'gap' };
+  }
+  const prepared = await transaction(db, async (tx) => claimDue(tx, actor, deps.config));
+  if (prepared === undefined) {
+    return { kind: 'idle' };
+  }
+  const sent = await sendPrepared(db, actor, prepared, deps, true);
+  return { kind: 'sent', publicationId: sent.publication.id, status: sent.publication.status };
 }

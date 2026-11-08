@@ -9,6 +9,10 @@ import {
   publishDeal,
   publishingStatus,
   resolvePublication,
+  scheduleDeal,
+  setPublishingPaused,
+  unscheduleDeal,
+  updatePublishingSettings,
   type PublishingSettings,
   type PublishLogger,
 } from './service.js';
@@ -24,6 +28,8 @@ export type PublishingRouteDeps = SessionDeps & {
   token: string | null;
   timeoutMs: number;
   dailyLimit: number;
+  minGapMinutes: number;
+  maxLateMinutes: number;
   linkStyle: LinkStyle;
   postFooter: string;
   uploadDir: string;
@@ -84,6 +90,8 @@ function settingsOf(deps: PublishingRouteDeps): PublishingSettings {
     channel: deps.channel,
     token: deps.token,
     dailyLimit: deps.dailyLimit,
+    minGapMinutes: deps.minGapMinutes,
+    maxLateMinutes: deps.maxLateMinutes,
     linkStyle: deps.linkStyle,
     postFooter: deps.postFooter,
     uploadDir: deps.uploadDir,
@@ -199,5 +207,91 @@ export function registerPublishingRoutes(app: FastifyInstance, deps: PublishingR
         messageId: typeof messageId === 'string' ? messageId.trim() : undefined,
       }),
     );
+  });
+
+  app.post('/api/admin/deals/:id/schedule', { preHandler: guard }, async (request, reply) => {
+    if (reply.sent || request.authUser === null || request.authUser.role !== 'owner') {
+      return;
+    }
+    const id = readParam(request.params, 'id');
+    if (typeof id !== 'string') {
+      return reply.code(404).send({ error: 'That deal was not found.' });
+    }
+    const updatedAt = parseUpdatedAt(readBody(request.body, 'updatedAt'));
+    const scheduledFor = parseUpdatedAt(readBody(request.body, 'scheduledFor'));
+    if (updatedAt === undefined) {
+      return reply.code(400).send({ error: STALE_DEAL });
+    }
+    if (scheduledFor === undefined) {
+      return reply.code(400).send({ error: 'Choose a time in the future.' });
+    }
+    const user = request.authUser;
+    return handle(reply, () =>
+      scheduleDeal(
+        deps.db,
+        { id: user.id, now: now() },
+        id,
+        { updatedAt, scheduledFor },
+        settingsOf(deps),
+      ),
+    );
+  });
+
+  app.post('/api/admin/deals/:id/unschedule', { preHandler: guard }, async (request, reply) => {
+    if (reply.sent || request.authUser === null || request.authUser.role !== 'owner') {
+      return;
+    }
+    const id = readParam(request.params, 'id');
+    if (typeof id !== 'string') {
+      return reply.code(404).send({ error: 'That deal was not found.' });
+    }
+    const updatedAt = parseUpdatedAt(readBody(request.body, 'updatedAt'));
+    if (updatedAt === undefined) {
+      return reply.code(400).send({ error: STALE_DEAL });
+    }
+    const user = request.authUser;
+    return handle(reply, () =>
+      unscheduleDeal(deps.db, { id: user.id, now: now() }, id, updatedAt, deps.channel),
+    );
+  });
+
+  app.post('/api/admin/publishing/pause', { preHandler: guard }, async (request, reply) => {
+    if (reply.sent || request.authUser === null || request.authUser.role !== 'owner') {
+      return;
+    }
+    const user = request.authUser;
+    await setPublishingPaused(deps.db, { id: user.id, now: now() }, true);
+    return publishingStatus(deps.db, settingsOf(deps), now());
+  });
+
+  app.post('/api/admin/publishing/resume', { preHandler: guard }, async (request, reply) => {
+    if (reply.sent || request.authUser === null || request.authUser.role !== 'owner') {
+      return;
+    }
+    const user = request.authUser;
+    await setPublishingPaused(deps.db, { id: user.id, now: now() }, false);
+    return publishingStatus(deps.db, settingsOf(deps), now());
+  });
+
+  app.patch('/api/admin/publishing/settings', { preHandler: guard }, async (request, reply) => {
+    if (reply.sent || request.authUser === null || request.authUser.role !== 'owner') {
+      return;
+    }
+    const dailyLimit = readBody(request.body, 'dailyLimit');
+    const minGapMinutes = readBody(request.body, 'minGapMinutes');
+    if (typeof dailyLimit !== 'number' || typeof minGapMinutes !== 'number') {
+      return reply
+        .code(400)
+        .send({ error: 'Enter a daily limit from 1 to 100 and a gap from 0 to 1440 minutes.' });
+    }
+    const user = request.authUser;
+    return handle(reply, async () => {
+      await updatePublishingSettings(
+        deps.db,
+        { id: user.id, now: now() },
+        { dailyLimit, minGapMinutes },
+      );
+      return publishingStatus(deps.db, settingsOf(deps), now());
+    });
   });
 }

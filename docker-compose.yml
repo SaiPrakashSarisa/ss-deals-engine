@@ -89,6 +89,9 @@ services:
       DAILY_POST_LIMIT: ${DAILY_POST_LIMIT:-8}
       LINK_STYLE: ${LINK_STYLE:-text}
       POST_FOOTER: ${POST_FOOTER:-}
+      MIN_POST_GAP_MINUTES: ${MIN_POST_GAP_MINUTES:-30}
+      MAX_LATE_MINUTES: ${MAX_LATE_MINUTES:-120}
+      SCHEDULER_INTERVAL_SECONDS: ${SCHEDULER_INTERVAL_SECONDS:-30}
     depends_on:
       postgres:
         condition: service_healthy

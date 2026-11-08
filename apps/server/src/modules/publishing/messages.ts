@@ -13,3 +13,11 @@ export const RECORD_FAILED =
   'The post reached Telegram, but it could not be recorded. Check the channel before trying again.';
 export const NOT_UNCERTAIN = 'Only an uncertain post can be resolved.';
 export const CHANNEL_MISSING = 'The Telegram channel is not configured.';
+export const SCHEDULE_FUTURE = 'Choose a time in the future.';
+export const SCHEDULE_WINDOW = 'Choose a time within the next 7 days.';
+export const NOT_QUEUED = 'Unschedule is only available before the post starts.';
+export const NOT_SCHEDULED = 'Only a scheduled deal can be unscheduled.';
+export const MISSED_WINDOW = 'Missed its scheduled time (the server was off or paused)';
+export const STOPPED_WHILE_POSTING = 'Server stopped while posting. Check the channel.';
+export const SETTINGS_INVALID =
+  'Enter a daily limit from 1 to 100 and a gap from 0 to 1440 minutes.';
