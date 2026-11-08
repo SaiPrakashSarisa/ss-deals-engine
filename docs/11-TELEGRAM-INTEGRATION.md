@@ -105,3 +105,11 @@ If that ASIN was logged in the last 14 days, the bot asks for a second confirmat
 A Telegram 429 waits for `retry_after` and tries that send once more. If it is still limited, the owner is told and nothing is logged. A timeout or an unknown response is not retried. The owner is told to check the channel, and the ASIN is logged as `uncertain`.
 
 Previews live in memory. Restarting the bot drops them. The post log survives on disk.
+
+## Server publisher
+
+The API and worker can post to the same kind of channel without using the quick-post bot. `PUBLISHING_ENABLED` defaults to false. When it is true, startup requires `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL` (`@username`) and exits if either is missing. The failure text does not include the token. Startup logs whether publishing is enabled and the channel name.
+
+`TelegramClient` sends HTML with Node `fetch`. `sendPhoto` uploads the stored image file as multipart. A text post turns the link preview off when the deal's preview is off. Results are `ok` (message id), `rate_limited` (HTTP 429), `rejected` (any other 4xx), or `uncertain` (timeout, a network error after the request started, 5xx, or a response that cannot be read). The token is removed from stored errors and logs.
+
+The caption is the deal's current content draft. A photo caption of 1024 characters or more is refused before the request. The inline button follows `LINK_STYLE`. Telegram is called only after the publication row is committed. An accepted post whose database update then fails stays `publishing`, and the error log contains the message id. An uncertain post is not retried. `POST /api/admin/publications/:id/resolve` records whether it actually appeared.

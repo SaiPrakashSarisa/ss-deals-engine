@@ -23,6 +23,9 @@ const redactPaths = [
   'password',
   'secret',
   'DATABASE_URL',
+  'TELEGRAM_BOT_TOKEN',
+  'telegramBotToken',
+  'botToken',
   '*.authorization',
   '*.cookie',
   '*.token',
@@ -34,6 +37,9 @@ const redactPaths = [
   '*.newPassword',
   '*.secret',
   '*.DATABASE_URL',
+  '*.TELEGRAM_BOT_TOKEN',
+  '*.telegramBotToken',
+  '*.botToken',
   '*.headers.authorization',
   '*.headers.cookie',
 ];
@@ -55,6 +61,8 @@ export function startupSummary(config: AppConfig): {
   logLevel: AppConfig['LOG_LEVEL'];
   tz: string;
   database: string;
+  publishingEnabled: boolean;
+  telegramChannel: string | null;
 } {
   return {
     nodeEnv: config.NODE_ENV,
@@ -62,6 +70,8 @@ export function startupSummary(config: AppConfig): {
     logLevel: config.LOG_LEVEL,
     tz: config.TZ,
     database: databaseTarget(config.DATABASE_URL),
+    publishingEnabled: config.PUBLISHING_ENABLED,
+    telegramChannel: config.TELEGRAM_CHANNEL,
   };
 }
 

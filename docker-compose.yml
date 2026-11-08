@@ -37,6 +37,13 @@ services:
       SHORT_LINK_HOSTS: ${SHORT_LINK_HOSTS:-amzn.to,link.amazon}
       UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-5}
+      PUBLISHING_ENABLED: ${PUBLISHING_ENABLED:-false}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHANNEL: ${TELEGRAM_CHANNEL:-}
+      TELEGRAM_TIMEOUT_MS: ${TELEGRAM_TIMEOUT_MS:-15000}
+      DAILY_POST_LIMIT: ${DAILY_POST_LIMIT:-8}
+      LINK_STYLE: ${LINK_STYLE:-text}
+      POST_FOOTER: ${POST_FOOTER:-}
     ports:
       - '127.0.0.1:3000:3000'
     depends_on:
@@ -75,6 +82,13 @@ services:
       SHORT_LINK_HOSTS: ${SHORT_LINK_HOSTS:-amzn.to,link.amazon}
       UPLOAD_DIR: ${UPLOAD_DIR:-/app/uploads}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-5}
+      PUBLISHING_ENABLED: ${PUBLISHING_ENABLED:-false}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHANNEL: ${TELEGRAM_CHANNEL:-}
+      TELEGRAM_TIMEOUT_MS: ${TELEGRAM_TIMEOUT_MS:-15000}
+      DAILY_POST_LIMIT: ${DAILY_POST_LIMIT:-8}
+      LINK_STYLE: ${LINK_STYLE:-text}
+      POST_FOOTER: ${POST_FOOTER:-}
     depends_on:
       postgres:
         condition: service_healthy

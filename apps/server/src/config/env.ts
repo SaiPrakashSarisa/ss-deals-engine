@@ -16,6 +16,13 @@ const configSchema = z
     SHORT_LINK_HOSTS: z.array(z.string().min(1)).min(1),
     UPLOAD_DIR: z.string().min(1),
     MAX_UPLOAD_MB: z.number().int().min(1).max(25),
+    PUBLISHING_ENABLED: z.boolean(),
+    TELEGRAM_BOT_TOKEN: z.string().min(1).nullable(),
+    TELEGRAM_CHANNEL: z.string().min(2).nullable(),
+    TELEGRAM_TIMEOUT_MS: z.number().int().min(1000).max(120_000),
+    DAILY_POST_LIMIT: z.number().int().min(1).max(100),
+    LINK_STYLE: z.enum(['text', 'button', 'both']),
+    POST_FOOTER: z.string().max(120),
   })
   .strict();
 
@@ -149,6 +156,98 @@ function parseMaxUploadMb(value: string | undefined): number {
   return parsed;
 }
 
+function parseBoolean(value: string | undefined, name: string, fallback: boolean): boolean {
+  if (value === undefined || value.trim() === '') {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true') {
+    return true;
+  }
+  if (normalized === 'false') {
+    return false;
+  }
+  throw new Error(`Invalid environment configuration: ${name} must be true or false`);
+}
+
+function parsePositiveInt(
+  value: string | undefined,
+  name: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (value === undefined || value.trim() === '') {
+    return fallback;
+  }
+  if (!/^\d+$/.test(value.trim())) {
+    throw new Error(
+      `Invalid environment configuration: ${name} must be a whole number from ${min} to ${max}`,
+    );
+  }
+  const parsed = Number(value.trim());
+  if (parsed < min || parsed > max) {
+    throw new Error(
+      `Invalid environment configuration: ${name} must be a whole number from ${min} to ${max}`,
+    );
+  }
+  return parsed;
+}
+
+function parseLinkStyle(value: string | undefined): 'text' | 'button' | 'both' {
+  if (value === undefined || value.trim() === '') {
+    return 'text';
+  }
+  const style = value.trim().toLowerCase();
+  if (style === 'text' || style === 'button' || style === 'both') {
+    return style;
+  }
+  throw new Error('Invalid environment configuration: LINK_STYLE must be text, button, or both');
+}
+
+function parseFooter(value: string | undefined): string {
+  const footer = value?.trim() ?? '';
+  if (footer.length > 120) {
+    throw new Error(
+      'Invalid environment configuration: POST_FOOTER must be at most 120 characters',
+    );
+  }
+  return footer;
+}
+
+function parseTelegram(
+  env: NodeJS.ProcessEnv,
+  enabled: boolean,
+): {
+  token: string | null;
+  channel: string | null;
+} {
+  const token = env.TELEGRAM_BOT_TOKEN?.trim() ?? '';
+  const channel = env.TELEGRAM_CHANNEL?.trim() ?? '';
+  if (token.length > 0 && /\s/.test(token)) {
+    throw new Error(
+      'Invalid environment configuration: TELEGRAM_BOT_TOKEN must not contain spaces',
+    );
+  }
+  if (channel.length > 0 && !/^@[A-Za-z][A-Za-z0-9_]{3,31}$/.test(channel)) {
+    throw new Error('Invalid environment configuration: TELEGRAM_CHANNEL must be an @username');
+  }
+  if (enabled && token.length === 0) {
+    throw new Error(
+      'Invalid environment configuration: TELEGRAM_BOT_TOKEN is required when PUBLISHING_ENABLED is true',
+    );
+  }
+  if (enabled && channel.length === 0) {
+    throw new Error(
+      'Invalid environment configuration: TELEGRAM_CHANNEL is required when PUBLISHING_ENABLED is true. Set it to an @username.',
+    );
+  }
+  return {
+    token: token.length > 0 ? token : null,
+    channel: channel.length > 0 ? channel : null,
+  };
+}
+
 function parseAllowedOrigins(value: string | undefined): string[] {
   const raw = value === undefined || value.trim() === '' ? 'http://localhost:3001' : value;
   const origins = raw
@@ -190,6 +289,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
+  const publishingEnabled = parseBoolean(env.PUBLISHING_ENABLED, 'PUBLISHING_ENABLED', false);
+  const telegram = parseTelegram(env, publishingEnabled);
   const parsed = configSchema.safeParse({
     NODE_ENV: nodeEnv,
     PORT: parsePort(env.PORT),
@@ -203,6 +304,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     SHORT_LINK_HOSTS: parseShortLinkHosts(env.SHORT_LINK_HOSTS),
     UPLOAD_DIR: parseUploadDir(env.UPLOAD_DIR),
     MAX_UPLOAD_MB: parseMaxUploadMb(env.MAX_UPLOAD_MB),
+    PUBLISHING_ENABLED: publishingEnabled,
+    TELEGRAM_BOT_TOKEN: telegram.token,
+    TELEGRAM_CHANNEL: telegram.channel,
+    TELEGRAM_TIMEOUT_MS: parsePositiveInt(
+      env.TELEGRAM_TIMEOUT_MS,
+      'TELEGRAM_TIMEOUT_MS',
+      15_000,
+      1000,
+      120_000,
+    ),
+    DAILY_POST_LIMIT: parsePositiveInt(env.DAILY_POST_LIMIT, 'DAILY_POST_LIMIT', 8, 1, 100),
+    LINK_STYLE: parseLinkStyle(env.LINK_STYLE),
+    POST_FOOTER: parseFooter(env.POST_FOOTER),
   });
 
   if (!parsed.success) {

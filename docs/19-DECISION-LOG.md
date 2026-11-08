@@ -183,3 +183,9 @@ Approve, send back, reject, reopen, and unapprove call `assertTransition`. Unapp
 ## 2026-11-08 — Image addresses and review exits
 
 Deal image URLs include the deal's `updatedAt` so a browser cannot keep a replaced file under the same address. `GET /api/deals/:id/image` sends `Cache-Control: private, no-cache`. After a successful send back or reject, the review page goes to `/admin` with a one-time notice (`Sent back to <name>.` or `Rejected.`) that the queue shows and then removes from the address. Approve, reopen, and unapprove stay on the deal and keep the `updatedAt` from the response.
+
+## 2026-11-08 — Publish now
+
+Publishing stays off unless `PUBLISHING_ENABLED` is true. The token and `@username` channel are required only then, and neither the token nor the database password is written at startup. The caption is the current content draft from approval, so the channel post matches the preview. `LINK_STYLE` adds the inline button when it is not `text`.
+
+One publication row exists per channel and deal. A failed row is reused for the next attempt. `queued`, `publishing`, and `uncertain` block another post for that channel and product. Telegram runs after that row is committed. `uncertain` is never retried by itself. If Telegram accepts the post and the database update fails, the row stays `publishing` and the log records the message id. The daily count is published posts from the app today in Asia/Kolkata. Imported history does not count. `GET /api/admin/publishing/status` includes the channel name so the admin screen can show it without a later server change. No schema change was required.

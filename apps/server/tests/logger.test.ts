@@ -16,6 +16,13 @@ const config: AppConfig = {
   SHORT_LINK_HOSTS: ['amzn.to', 'link.amazon'],
   UPLOAD_DIR: '/tmp/ss-uploads',
   MAX_UPLOAD_MB: 5,
+  PUBLISHING_ENABLED: true,
+  TELEGRAM_BOT_TOKEN: '123456:SECRETTOKEN',
+  TELEGRAM_CHANNEL: '@deals_channel',
+  TELEGRAM_TIMEOUT_MS: 15000,
+  DAILY_POST_LIMIT: 8,
+  LINK_STYLE: 'text',
+  POST_FOOTER: '',
 };
 
 describe('logger', () => {
@@ -29,10 +36,13 @@ describe('logger', () => {
       logLevel: 'info',
       tz: 'Asia/Kolkata',
       database: 'db.internal:5432/ssdeals',
+      publishingEnabled: true,
+      telegramChannel: '@deals_channel',
     });
     expect(serialized).not.toContain('supersecret');
     expect(serialized).not.toContain('appuser');
     expect(serialized).not.toContain('example-21');
+    expect(serialized).not.toContain('SECRETTOKEN');
   });
 
   it('redacts authorization and token fields', () => {
